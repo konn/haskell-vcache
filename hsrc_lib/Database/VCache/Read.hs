@@ -9,6 +9,7 @@ import Control.Monad
 import qualified Data.Map.Strict as Map
 import Control.Concurrent.MVar
 import Data.Word
+import qualified Data.List as L
 import Foreign.Ptr
 import Foreign.Storable
 import Foreign.Marshal.Alloc
@@ -45,7 +46,7 @@ withAddrValIO vc addr action =
             readMVar (vcache_memory vc) >>= \ memory ->
             let ac = mem_alloc memory in
             case allocFrameSearch ff ac of
-                Just _data -> withByteStringVal _data action -- found data in allocator
+                Just wc -> withByteStringVal (fst wc) action -- found data in allocator
                 Nothing -> fail $ "VCache: address " ++ show addr ++ " is undefined!"
 {-# NOINLINE withAddrValIO #-}
 
@@ -57,7 +58,10 @@ readVal vc p v = _vget (vgetFull p) s0 >>= retv where
                , vget_limit = mv_data v `plusPtr` size
                , vget_space = vc
                }
-    retv (VGetR result _) = return (result, size)
+    retv (VGetR r sf) = 
+        let nDeps = L.length (vget_children sf) in
+        let weight = cacheWeight size nDeps in
+        weight `seq` return (r, weight)
     retv (VGetE eMsg) = fail eMsg
 
 -- vget with initializer for dependencies.

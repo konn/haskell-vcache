@@ -8,7 +8,6 @@ module Database.VCache.VPutFini
 
 import Control.Exception (onException)
 import Data.IORef
-import Data.ByteString (ByteString)
 import Foreign.Ptr
 import Foreign.ForeignPtr
 import Foreign.Marshal.Alloc
@@ -58,7 +57,7 @@ putChildren = ini where
 
 -- Obtain a strict bytestring corresponding to VPut output.
 -- Also returns any other computed result, usually `()`.
-runVPutIO :: VSpace -> VPut a -> IO (a, ByteString)
+runVPutIO :: VSpace -> VPut a -> IO (a, WriteCell)
 runVPutIO vs action = do
     let initialSize = 2000 -- avoid reallocs for small records
     pBuff <- mallocBytes initialSize
@@ -77,9 +76,10 @@ runVPutIO vs action = do
     pBuffR <- reallocBytes pBuff' len -- reclaim unused space
     fpBuff' <- newForeignPtr finalizerFree pBuffR
     let bytes = BSI.fromForeignPtr fpBuff' 0 len
-    return (r, bytes)
+    let deps = vput_children s0 
+    bytes `seq` deps `seq` return (r, (bytes, deps))
 {-# NOINLINE runVPutIO #-}
 
-runVPut :: VSpace -> VPut a -> (a, ByteString)
+runVPut :: VSpace -> VPut a -> (a, WriteCell)
 runVPut vs action = unsafePerformIO (runVPutIO vs action)
 
