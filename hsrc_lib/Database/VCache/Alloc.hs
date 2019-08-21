@@ -220,7 +220,7 @@ _getPVEphTVar = Weak.deRefWeak . _u where
 -- If cache exists, will touch existing cache as if dereferenced.
 newVRefIO :: (VCacheable a) => VSpace -> a -> CacheMode -> IO (VRef a)
 newVRefIO vc v cm = 
-    runVPutIO vc (put v) >>= \ ((), () ->
+    runVPutIO vc (put v) >>= \ ((), _data) ->
     allocVRefIO vc _data >>= \ vref ->
     join $ atomicModifyIORef (vref_cache vref) $ \ c -> case c of
         Cached r bf ->
@@ -228,7 +228,6 @@ newVRefIO vc v cm =
             let c' = Cached r bf' in
             (c', c' `seq` return vref)
         NotCached ->
-            let w = cacheWeight
             let c' = mkVRefCache v (BS.length _data) cm in
             let op = initVRefCache vref >> return vref in
             (c', c' `seq` op)
@@ -259,8 +258,8 @@ newVRefIO' !vc v = runVPutIO vc (put v) >>= allocVRefIO vc . snd
 -- recent allocations. Only if no match is found will we prepare a new
 -- allocation.
 --
-allocVRefIO :: (VCacheable a) => VSpace -> WriteCell -> IO (VRef a)
-allocVRefIO !vc wc = 
+allocVRefIO :: (VCacheable a) => VSpace -> ByteString -> IO (VRef a)
+allocVRefIO !vc !_data = 
     let _name = hash _data in
     withByteStringVal _name $ \ vName ->
     withByteStringVal _data $ \ vData ->

@@ -38,7 +38,6 @@ toRefctBytes = rcb [] . subtract 1 . assertPositive where
 -- write a reference variable-width count into an MDB_val.
 --
 -- Note: given buffer should be large enough for any reference count. 
--- e.g. 8 bytes is guaranteed to be enough on a 64-bit system
 writeRefctBytes :: Ptr Word8 -> Refct -> IO MDB_val
 writeRefctBytes p0 = wrcb p0 0 . toRefctBytes where
     wrcb _ n [] = return $! MDB_val { mv_data = p0, mv_size = n }

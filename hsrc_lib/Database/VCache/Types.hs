@@ -16,7 +16,7 @@ module Database.VCache.Types
     , GC(..), GCFrame(..)
     , Memory(..)
     , VTx(..), VTxState(..), TxW(..), VTxBatch(..)
-    , Writes(..), WriteLog, WriteCt(..), WriteCell
+    , Writes(..), WriteLog, WriteCt(..)
     , CacheSizeEst(..)
 
     -- misc. utilities
@@ -27,7 +27,7 @@ module Database.VCache.Types
     , withByteStringVal
 
     , getVTxSpace, markForWrite, liftSTM
-    , mkVRefCache, cacheModeBits, touchCache, cacheWeight
+    , mkVRefCache, cacheModeBits, touchCache
     ) where
 
 import Data.Bits
@@ -202,9 +202,6 @@ touchCache !cm !w =
     (w .&. 0xff1f) .|. cb'
 {-# INLINE touchCache #-}
 
-cacheWeight :: Int -> Int -> Int
-cacheWeight !nBytes !nDeps = nBytes + (60 * nDeps)
-
 mkVRefCache :: a -> Int -> CacheMode -> Cache a
 mkVRefCache val !w !cm = Cached val cw where
     cw = m .|. cs 0 64
@@ -368,15 +365,11 @@ data Allocator = Allocator
 -- a single allocation frame corresponds to new content written
 -- while the writer is busy in the background. 
 data AllocFrame = AllocFrame 
-    { alloc_list :: !(Map Address WriteCell)    -- recent allocations
+    { alloc_list :: !(Map Address ByteString)    -- recent allocations
     , alloc_seek :: !(Map ByteString [Address])  -- vref content addressing 
     , alloc_root :: ![(Address, ByteString)]     -- root PVars with path names
     , alloc_init :: {-# UNPACK #-} !Address      -- next address at frame start.
     }
-
--- rather than read and allocate the child list twice, I'll simply
--- hold onto it for now.
-type WriteCell = (ByteString, [Address])
 
 allocFrameSearch :: (AllocFrame -> Maybe a) -> Allocator -> Maybe a
 allocFrameSearch f a = f n <|> f c <|> f p where
