@@ -45,9 +45,8 @@ clearVRefsCache vc = do
     mapM_ (mapM_ clearVREphCache . Map.elems) (Map.elems cvrefs)
 
 clearVREphCache :: VREph -> IO ()
-clearVREphCache (VREph { vreph_cache = wc }) =
-    Weak.deRefWeak wc >>= \ mbCache ->
-    case mbCache of
+clearVREphCache VREph { vreph_cache = wc } =
+    Weak.deRefWeak wc >>= \case
         Nothing -> return ()
         Just cache -> writeIORef cache NotCached
 
@@ -59,7 +58,7 @@ clearVREphCache (VREph { vreph_cache = wc }) =
 clearVRefCache :: VRef a -> IO ()
 clearVRefCache v = do
     let vc = vref_space v
-    modifyMVarMasked_ (vcache_cvrefs vc) $ \ cvrefs -> do
+    modifyMVarMasked_ (vcache_cvrefs vc) $ \ cvrefs ->
         case takeVREph (vref_addr v) (vref_type v) cvrefs of
             Nothing -> return cvrefs -- was not cached
             Just ( _ , cvrefs') -> return cvrefs'

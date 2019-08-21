@@ -1,5 +1,3 @@
-{-# LANGUAGE BangPatterns #-}
-
 module Database.VCache.VGet
     ( VGet
 
@@ -26,7 +24,7 @@ module Database.VCache.VGet
 
     ) where
 
-import Control.Applicative
+import Control.Monad
 
 import Data.Bits
 import Data.Char
@@ -57,7 +55,7 @@ import Database.VCache.VGetAux
 isolate :: Int -> Int -> VGet a -> VGet a
 isolate nBytes nRefs op = VGet $ \ s ->
     let pF = vget_target s `plusPtr` nBytes in
-    if (pF > vget_limit s) then return (VGetE "isolate: not enough data") else
+    if pF > vget_limit s then return (VGetE "isolate: not enough data") else
     case takeExact nRefs (vget_children s) of
         Nothing -> return (VGetE "isolate: not enough children")
         Just (cs,cs') ->
@@ -94,7 +92,7 @@ takeExact' _ _ _ = Nothing
 -- same cache.
 getVRef :: (VCacheable a) => VGet (VRef a)
 getVRef = VGet $ \ s ->
-    case (vget_children s) of
+    case vget_children s of
         (c:cs) | isVRefAddr c -> do
             let s' = s { vget_children = cs }
             vref <- addr2vref (vget_space s) c
@@ -113,7 +111,7 @@ getVRef = VGet $ \ s ->
 --
 getPVar :: (VCacheable a) => VGet (PVar a)
 getPVar = VGet $ \ s ->
-    case (vget_children s) of
+    case vget_children s of
         (c:cs) | isPVarAddr c -> do
             let s' = s { vget_children = cs }
             pvar <- addr2pvar (vget_space s) c
@@ -137,7 +135,7 @@ getWord16le = consuming 2 $ VGet $ \ s -> do
     b0 <- peekByte p
     b1 <- peekByte (p `plusPtr` 1)
     let r = (fromIntegral b1 `shiftL`  8) .|.
-            (fromIntegral b0            )
+            fromIntegral b0
     let s' = s { vget_target = p `plusPtr` 2 }
     return (VGetR r s')
 {-# INLINE getWord16le #-}
@@ -151,7 +149,7 @@ getWord32le = consuming 4 $ VGet $ \ s -> do
     let r = (fromIntegral b3 `shiftL` 24) .|.
             (fromIntegral b2 `shiftL` 16) .|.
             (fromIntegral b1 `shiftL`  8) .|.
-            (fromIntegral b0            )
+            fromIntegral b0
     let s' = s { vget_target = p `plusPtr` 4 }
     return (VGetR r s')
 {-# INLINE getWord32le #-}
@@ -173,7 +171,7 @@ getWord64le = consuming 8 $ VGet $ \ s -> do
             (fromIntegral b3 `shiftL` 24) .|.
             (fromIntegral b2 `shiftL` 16) .|.
             (fromIntegral b1 `shiftL`  8) .|.
-            (fromIntegral b0            )
+            fromIntegral b0
     let s' = s { vget_target = p `plusPtr` 8 }
     return (VGetR r s')
 {-# INLINE getWord64le #-}
@@ -183,7 +181,7 @@ getWord16be = consuming 2 $ VGet $ \ s -> do
     b0 <- peekByte p
     b1 <- peekByte (p `plusPtr` 1)
     let r = (fromIntegral b0 `shiftL`  8) .|.
-            (fromIntegral b1            )
+            fromIntegral b1
     let s' = s { vget_target = p `plusPtr` 2 }
     return (VGetR r s')
 {-# INLINE getWord16be #-}
@@ -197,7 +195,7 @@ getWord32be = consuming 4 $ VGet $ \ s -> do
     let r = (fromIntegral b0 `shiftL` 24) .|.
             (fromIntegral b1 `shiftL` 16) .|.
             (fromIntegral b2 `shiftL`  8) .|.
-            (fromIntegral b3            )
+            fromIntegral b3
     let s' = s { vget_target = p `plusPtr` 4 }
     return (VGetR r s')
 {-# INLINE getWord32be #-}
@@ -219,7 +217,7 @@ getWord64be = consuming 8 $ VGet $ \ s -> do
             (fromIntegral b4 `shiftL` 24) .|.
             (fromIntegral b5 `shiftL` 16) .|.
             (fromIntegral b6 `shiftL`  8) .|.
-            (fromIntegral b7            )
+            fromIntegral b7
     let s' = s { vget_target = p `plusPtr` 8 }
     return (VGetR r s')
 {-# INLINE getWord64be #-}
@@ -241,8 +239,8 @@ _getStorable _dummy = withBytes (sizeOf _dummy) (peekAligned . castPtr)
 -- but the underlying pointer is ephemeral, becoming invalid after
 -- the current read transaction). Fails if not enough data. O(N)
 getByteString :: Int -> VGet BS.ByteString
-getByteString n | (n > 0)   = _getByteString n
-                | otherwise = return (BS.empty)
+getByteString n | n > 0   = _getByteString n
+                | otherwise = return BS.empty
 {-# INLINE getByteString #-}
 
 _getByteString :: Int -> VGet BS.ByteString
@@ -273,9 +271,9 @@ withBytes n action = consuming n $ VGet $ \ s -> do
 getc :: VGet Char
 getc =
     _c0 >>= \ b0 ->
-    if (b0 < 0x80) then return $! chr b0 else
-    if (b0 < 0xe0) then _getc2 (b0 `xor` 0xc0) else
-    if (b0 < 0xf0) then _getc3 (b0 `xor` 0xe0) else
+    if b0 < 0x80 then return $! chr b0 else
+    if b0 < 0xe0 then _getc2 (b0 `xor` 0xc0) else
+    if b0 < 0xf0 then _getc3 (b0 `xor` 0xe0) else
     _getc4 (b0 `xor` 0xf0)
 
 -- get UTF-8 of size 2,3,4 bytes
@@ -295,7 +293,7 @@ _getc4 b0 =
 
 _c0,_cc :: VGet Int
 _c0 = fromIntegral <$> getWord8
-_cc = (fromIntegral . xor 0x80) <$> getWord8
+_cc = fromIntegral . xor 0x80 <$> getWord8
 {-# INLINE _c0 #-}
 {-# INLINE _cc #-}
 
@@ -304,8 +302,7 @@ _cc = (fromIntegral . xor 0x80) <$> getWord8
 -- | label will modify the error message returned from the
 -- argument operation; it can help contextualize parse errors.
 label :: ShowS -> VGet a -> VGet a
-label sf op = VGet $ \ s ->
-    _vget op s >>= \ r ->
+label sf op = VGet $ _vget op >=> \ r ->
     return $
     case r of
         VGetE emsg -> VGetE (sf emsg)

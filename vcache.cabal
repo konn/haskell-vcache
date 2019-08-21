@@ -79,5 +79,6 @@ Library
     Database.VCache.Clean
     Database.VCache.Refct
 
-  ghc-options: -Wall -auto-all
+  ghc-options: -Wall -fprof-auto
 
+  extensions: LambdaCase

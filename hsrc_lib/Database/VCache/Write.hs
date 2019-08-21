@@ -131,7 +131,7 @@ writeStep vc = withRWLock (vcache_rwlock vc) $ do
 
     -- Finish writeStep: commit, synch, stats, signals.
     mdb_txn_commit txn -- LMDB commit & synch
-    modifyIORef' (vcache_gc_count vc) (+ (Map.size gcb)) -- update GC count
+    modifyIORef' (vcache_gc_count vc) (+ Map.size gcb) -- update GC count
     forM_ wsync syncSignal -- signal waiting threads
 {-# NOINLINE writeStep #-}
 
@@ -188,7 +188,7 @@ syncSignal = void . flip tryPutMVar ()
 -- significantly optimized.
 insertRootPVars :: VSpace -> MDB_txn -> [(Address,ByteString)] -> IO ()
 insertRootPVars vc txn rootList =
-    if (L.null rootList) then return () else
+    if L.null rootList then return () else
     alloca $ \ pAddr -> do
     let vAddr = MDB_val { mv_data = castPtr pAddr, mv_size = fromIntegral addrSize }
     croot <- mdb_cursor_open' txn (vcache_db_vroots vc)
@@ -207,7 +207,7 @@ insertRootPVars vc txn rootList =
 -- table. The benefits of sequential insert are probably marginal.
 updateContentAddressTable :: VSpace -> MDB_txn -> Address -> UpdSeek -> IO ()
 updateContentAddressTable vc txn allocInit updSeek =
-    if (Map.null updSeek) then return () else
+    if Map.null updSeek then return () else
     alloca $ \ pAddr ->
     alloca $ \ pvKey ->
     alloca $ \ pvAddr -> do
@@ -273,7 +273,7 @@ updateReferenceCounts vc txn allocInit rcDiffMap =
             bOK <- mdb_cursor_put' flags wc0 vAddr vZero
             unless bOK (addrBug addr "refct0 could not be appended")
     let newAllocation addr rc =
-            if (0 == rc) then newEphemeron addr else do
+            if 0 == rc then newEphemeron addr else do
             unless (rc > 0) (addrBug addr "allocation with negative refct")
             vRefct <- writeRefctBytes pRefctBuff rc
             let flags = compileWriteFlags [MDB_APPEND]
@@ -291,15 +291,15 @@ updateReferenceCounts vc txn allocInit rcDiffMap =
             unless bOK (addrBug addr "could not update refct from zero")
     let updateRefct (addr,rcDiff) =
             poke pAddr addr >> -- prepares vAddr, pvAddr
-            if (addr >= allocInit) then newAllocation addr rcDiff else
-            if (0 == rcDiff) then return () else -- zero delta, may skip
+            if addr >= allocInit then newAllocation addr rcDiff else
+            if 0 == rcDiff then return () else -- zero delta, may skip
             mdb_cursor_get' MDB_SET wrc pvAddr pvData >>= \ bHasRefct ->
-            if (not bHasRefct) then updateFromZero addr rcDiff else
+            if not bHasRefct then updateFromZero addr rcDiff else
             peek pvData >>= readRefctBytes >>= \ rcOld ->
             assert (rcOld > 0) $
             let rc = rcOld + rcDiff in
-            if (rc < 0) then addrBug addr "positive to negative refct" else
-            if (0 == rc)
+            if rc < 0 then addrBug addr "positive to negative refct" else
+            if 0 == rc
                 then do let df = compileWriteFlags []
                         mdb_cursor_del' df wrc
                         let wf0 = compileWriteFlags [MDB_NOOVERWRITE]
@@ -381,8 +381,8 @@ updateVirtualMemory vc txn allocStart fb =
 
     let processCell udn (addr, bytes) =
             poke pAddr addr >> --
-            if (BS.null bytes) then delete udn addr else
-            if (addr >= allocStart) then create udn addr bytes
+            if BS.null bytes then delete udn addr else
+            if addr >= allocStart then create udn addr bytes
                                     else update udn addr bytes
 
     notes <- foldM processCell emptyNotes (Map.toAscList fb)
@@ -445,16 +445,15 @@ gcCandidates vc txn gcLimit =
     c0 <- mdb_cursor_open' txn (vcache_db_refct0 vc)
 
     let loop !n !b !gcb = -- select candidates
-            if (not b) then restartGC vc >> return gcb else
+            if not b then restartGC vc >> return gcb else
             (peek pvAddr >>= peekAddr) >>= \ addr ->
             let gcb' = Map.insert addr gcCell gcb in
-            if (0 == n) then continueGC vc addr >> return gcb' else
+            if 0 == n then continueGC vc addr >> return gcb' else
             mdb_cursor_get' MDB_NEXT c0 pvAddr nullPtr >>= \ b' ->
             loop (n-1) b' gcb'
 
     let initC0 = -- continue GC or start from beginning of map
-            readIORef (vcache_gc_start vc) >>= \ mbContinue ->
-            case mbContinue of
+            readIORef (vcache_gc_start vc) >>= \case
                 Nothing -> mdb_cursor_get' MDB_FIRST c0 pvAddr nullPtr
                 Just addr -> alloca $ \ pAddr -> do
                     let vAddr = MDB_val { mv_data = castPtr pAddr
@@ -472,8 +471,8 @@ gcCandidates vc txn gcLimit =
 gcSelectFrame :: VSpace -> GCBatch -> IO GCBatch
 gcSelectFrame vc gcb =
     modifyMVarMasked (vcache_memory vc) $ \ m -> do
-    let gcb' = ((gcb `Map.difference` mem_vrefs m)
-                     `Map.difference` mem_pvars m)
+    let gcb' = (gcb `Map.difference` mem_vrefs m)
+                     `Map.difference` mem_pvars m
     let gc' = GC { gc_frm_curr = GCFrame gcb'
                  , gc_frm_prev = gc_frm_curr (mem_gc m) }
     let m' = m { mem_gc = gc' }

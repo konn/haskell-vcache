@@ -26,15 +26,15 @@ maxPathLen = 511  -- key size limit from LMDB 0.9.10
 vcacheSubdir :: ByteString -> VCache -> VCache
 vcacheSubdir p (VCache vs d) =
     let d' = subdir d p in
-    if (BS.length d' > maxPathLen)
+    if BS.length d' > maxPathLen
         then error ("VCache path too long: " ++ show d')
-        else (VCache vs d')
+        else VCache vs d'
 
 -- | as vcacheSubdir, but returns Nothing if the path is too large.
 vcacheSubdirM :: ByteString -> VCache -> Maybe VCache
 vcacheSubdirM p (VCache vs d) =
     let d' = subdir d p in
-    if (BS.length d' > maxPathLen)
+    if BS.length d' > maxPathLen
         then Nothing
         else Just (VCache vs d')
 

@@ -31,7 +31,6 @@ module Database.VCache.Clean
     ) where
 
 import Control.Monad
-import Control.Applicative
 import Control.Concurrent
 import Data.Bits
 import qualified Data.Traversable as TR
@@ -49,14 +48,14 @@ cleanStep :: VSpace -> IO ()
 cleanStep vc = do
     wtgt <- readIORef (vcache_climit vc)
     w0 <- estCacheSize vc
-    let hitRate =
-            if ((100 * w0) < ( 80 * wtgt)) then 0.00 else
-            if ((100 * w0) < (100 * wtgt)) then 0.01 else
-            if ((100 * w0) < (120 * wtgt)) then 0.02 else
-            if ((100 * w0) < (150 * wtgt)) then 0.03 else
-            if ((100 * w0) < (190 * wtgt)) then 0.04 else
-            if ((100 * w0) < (240 * wtgt)) then 0.05 else
-            0.06
+    let hitRate
+          | (100 * w0) < ( 80 * wtgt) = 0.00
+          | (100 * w0) < (100 * wtgt) = 0.01
+          | (100 * w0) < (120 * wtgt) = 0.02
+          | (100 * w0) < (150 * wtgt) = 0.03
+          | (100 * w0) < (190 * wtgt) = 0.04
+          | (100 * w0) < (240 * wtgt) = 0.05
+          | otherwise = 0.06
     xcln vc hitRate
     updateCacheSizeEst vc 10 0.01
     wf <- estCacheSize vc
@@ -64,7 +63,7 @@ cleanStep vc = do
     bsig <- shouldSignalWriter vc
     when bsig (signalWriter vc)
 
-    let bSatisfied = (max w0 wf) < wtgt
+    let bSatisfied = max w0 wf < wtgt
     let dtSleep = if bSatisfied then 270000 else 135000
     usleep dtSleep -- ~10Hz, slower when steady
 
@@ -113,13 +112,13 @@ updateCacheSizeEst vc !n !alpha =
     let upd new old = (alpha * new) + ((1.0 - alpha) * old) in
     let szAvg' = upd szAvgSamp szAvgEst in
     let sqszAvg' = upd sqszAvgSamp sqszAvgEst in
-    writeIORef (vcache_csize vc) $! (CacheSizeEst szAvg' sqszAvg')
+    writeIORef (vcache_csize vc) $! CacheSizeEst szAvg' sqszAvg'
 
 readVREphSize :: VREph -> IO Int
-readVREphSize (VREph { vreph_cache = wk }) =
-    Weak.deRefWeak wk >>= \ mbc -> case mbc of
+readVREphSize VREph { vreph_cache = wk } =
+    Weak.deRefWeak wk >>= \case
         Nothing -> return 2048 -- GC'd recently; high estimate
-        Just cache -> readIORef cache >>= \ c -> case c of
+        Just cache -> readIORef cache >>= \case
             NotCached ->
                 let eMsg = "VCache bug: NotCached element found in vcache_cvrefs" in
                 fail eMsg
@@ -142,7 +141,7 @@ xcln !vc !hr = do
 
 xclnLoop :: VSpace -> Int -> Random.StdGen -> IO ()
 xclnLoop !vc !n !r =
-    if (n < 1) then return () else
+    if n < 1 then return () else
     xclnStrike vc r >>= xclnLoop vc (n-1)
 
 xclnStrike :: VSpace -> Random.StdGen -> IO Random.StdGen
@@ -158,14 +157,14 @@ xclnStrike !vc !r = modifyMVarMasked (vcache_cvrefs vc) $ \ cvrefs ->
 -- strikeVREph will reduce the CacheMode for a cached element or
 -- remove it from the cache for CacheMode0.
 strikeVREph :: VREph -> IO (Maybe VREph)
-strikeVREph vreph@(VREph { vreph_cache = wk }) =
-    Weak.deRefWeak wk >>= \ mbCache -> case mbCache of
+strikeVREph vreph@VREph { vreph_cache = wk } =
+    Weak.deRefWeak wk >>= \case
         Nothing -> return Nothing
-        Just cache -> atomicModifyIORef cache $ \ c -> case c of
-            Cached r bf | (0 /= bf .&. 0x60) ->
+        Just cache -> atomicModifyIORef cache $ \case
+            Cached r bf | 0 /= bf .&. 0x60 ->
                 let bf' = (0x80 .|. (bf - 0x20)) in
                 let c' = Cached r bf' in
-                (c', c' `seq` (Just vreph))
+                (c', c' `seq` Just vreph)
             _ -> (NotCached, Nothing)
 
 -- If the writer has obvious work it could be doing, signal it. This
@@ -179,7 +178,7 @@ shouldSignalWriter vc =
     if bHoldingAllocs then return True else
     readZeroesCt vc >>= \ ctZeroes ->
     let ctEphAddrs = Map.size (mem_vrefs m) + Map.size (mem_pvars m) in
-    if (ctEphAddrs < ctZeroes) then return True else
+    if ctEphAddrs < ctZeroes then return True else
     return False
 
 readZeroesCt :: VSpace -> IO Int

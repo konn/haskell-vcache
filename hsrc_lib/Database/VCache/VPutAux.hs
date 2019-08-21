@@ -1,4 +1,4 @@
-{-# LANGUAGE BangPatterns #-}
+
 
 -- dependencies of both VPutFini and VPut
 module Database.VCache.VPutAux
@@ -13,7 +13,6 @@ module Database.VCache.VPutAux
     , peekChildren
     ) where
 
-import Control.Applicative
 import Data.Bits
 import Data.Word
 import Data.IORef
@@ -27,9 +26,9 @@ import Database.VCache.Types
 reserving :: Int -> VPut a -> VPut a
 reserving n op = reserve n >> op
 {-# RULES
-"reserving >> reserving" forall n1 n2 f g . reserving n1 f >> reserving n2 g = reserving (n1+n2) (f>>g)
+"reserving >> reserving" [~4] forall n1 n2 f g . reserving n1 f >> reserving n2 g = reserving (n1+n2) (f>>g)
  #-}
-{-# INLINABLE reserving #-}
+{-# INLINABLE [3] reserving #-}
 
 -- | Ensure that at least N bytes are available for storage without
 -- growing the underlying buffer. Use this before unsafePutWord8
@@ -38,7 +37,7 @@ reserving n op = reserve n >> op
 reserve :: Int -> VPut ()
 reserve n = VPut $ \ s ->
     let avail = vput_limit s `minusPtr` vput_target s in
-    if (avail >= n) then return (VPutR () s)
+    if avail >= n then return (VPutR () s)
                     else VPutR () <$> grow n s
 {-# INLINE reserve #-}
 
@@ -65,7 +64,7 @@ grow n s =
 unsafePutWord8 :: Word8 -> VPut ()
 unsafePutWord8 w8 = VPut $ \ s ->
     let pTgt = vput_target s in
-    let s' = s { vput_target = (pTgt `plusPtr` 1) } in
+    let s' = s { vput_target = pTgt `plusPtr` 1 } in
     poke pTgt w8 >>
     return (VPutR () s')
 {-# INLINE unsafePutWord8 #-}
@@ -79,7 +78,7 @@ putWord8 w8 = reserving 1 $ unsafePutWord8 w8
 -- with Google protocol buffers. This takes one byte for values 0..127,
 -- two bytes for 128..16k, etc.. Will fail if given a negative argument.
 putVarNat :: Integer -> VPut ()
-putVarNat n | (n < 0) = fail $ "putVarNat with " ++ show n
+putVarNat n | n < 0 = fail $ "putVarNat with " ++ show n
             | otherwise = _putVarNat q >> putWord8 bLo
   where q   = n `shiftR` 7
         bLo = 0x7f .&. fromIntegral n
@@ -100,8 +99,8 @@ putVarInt = putVarNat . zigZag
 {-# INLINE putVarInt #-}
 
 zigZag :: Integer -> Integer
-zigZag n | (n < 0)   = (negate n * 2) - 1
-         | otherwise = (n * 2)
+zigZag n | n < 0   = (negate n * 2) - 1
+         | otherwise = n * 2
 {-# INLINE zigZag #-}
 
 
@@ -111,7 +110,7 @@ zigZag n | (n < 0)   = (negate n * 2) - 1
 -- of the children list. But we write backwards so we can later read it
 -- from the end of the buffer.
 putVarNatR :: Int -> VPut ()
-putVarNatR n | (n < 0) = fail $ "putVarNatR with " ++ show n
+putVarNatR n | n < 0 = fail $ "putVarNatR with " ++ show n
              | otherwise = putWord8 bLo >> _putVarNatR q
   where bLo  = 0x7f .&. fromIntegral n
         q    = n `shiftR` 7
@@ -129,7 +128,7 @@ _putVarNatR n = putWord8 b >> _putVarNatR q where
 peekBufferSize :: VPut Int
 peekBufferSize = VPut $ \ s ->
     readIORef (vput_buffer s) >>= \ pStart ->
-    let size = (vput_target s) `minusPtr` pStart in
+    let size = vput_target s `minusPtr` pStart in
     size `seq`
     return (VPutR size s)
 {-# INLINE peekBufferSize #-}

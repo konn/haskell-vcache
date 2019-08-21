@@ -67,7 +67,7 @@ deref = derefc CacheMode1
 derefc :: CacheMode -> VRef a -> a
 derefc cm v = unsafeDupablePerformIO $
     unsafeInterleaveIO (readVRef v) >>= \ lazy_read_rw ->
-    join $ atomicModifyIORef (vref_cache v) $ \ c -> case c of
+    join $ atomicModifyIORef (vref_cache v) $ \case
         Cached r bf ->
             let bf' = touchCache cm bf in
             let c' = Cached r bf' in
@@ -89,9 +89,9 @@ derefc cm v = unsafeDupablePerformIO $
 -- need to cache the parse result.
 deref' :: VRef a -> a
 deref' v = unsafePerformIO $
-    readIORef (vref_cache v) >>= \ c -> case c of
+    readIORef (vref_cache v) >>= \case
         Cached r _ -> return r
-        NotCached -> liftM fst (readVRef v)
+        NotCached -> fmap fst (readVRef v)
 {-# INLINABLE deref' #-}
 
 -- | Specialized, zero-copy access to a `VRef ByteString`. Access to
@@ -113,7 +113,7 @@ readVarNat :: Ptr Word8 -> Int -> IO (Ptr Word8, Int)
 readVarNat !p !n =
     peek p >>= \ w8 ->
     let p' = p `plusPtr` 1 in
-    let n' = (n `shiftL` 7) + (fromIntegral $ w8 .&. 0x7f) in
+    let n' = (n `shiftL` 7) + fromIntegral (w8 .&. 0x7f) in
     let bDone = (0 == (w8 .&. 0x80)) in
     if bDone then return (p', n') else
     readVarNat p' n'

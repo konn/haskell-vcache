@@ -24,7 +24,7 @@ readRefctBytes v = rd (mv_data v) (mv_size v) 0 where
     rd _ 0 rc = return (rc + 1)
     rd p n rc = do
         w8 <- peek p
-        let rc' = (rc `shiftL` 8) .|. (fromIntegral w8)
+        let rc' = (rc `shiftL` 8) .|. fromIntegral w8
         rd (p `plusPtr` 1) (n - 1) rc'
 
 -- compute list of bytes for a big-endian encoding.

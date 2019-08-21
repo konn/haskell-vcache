@@ -50,7 +50,7 @@ signalWriter vc = void (tryPutMVar (vcache_signal vc) ())
 
 -- Record recent writes for each PVar.
 updateLog :: WriteLog -> WriteLog -> WriteLog
-updateLog updates writeLog = Map.union updates writeLog
+updateLog = Map.union
 {-# INLINE updateLog #-}
 
 -- Track which threads are waiting on a commit signal.

@@ -1,4 +1,3 @@
-
 module Database.VCache.PVar
     ( PVar
     , newPVar
@@ -29,9 +28,8 @@ import Database.VCache.Read (readRefctIO)
 readPVar :: PVar a -> VTx a
 readPVar pvar =
     getVTxSpace >>= \ space ->
-    if (space /= pvar_space pvar) then fail eBadSpace else
-    liftSTM $ readTVar (pvar_data pvar) >>= \ rdv ->
-              case rdv of { (RDV v) -> return v }
+    if space /= pvar_space pvar then fail eBadSpace else
+    liftSTM $ readTVar (pvar_data pvar) >>= \case { (RDV v) -> return v }
 {-# INLINABLE readPVar #-}
 
 -- Note that readPVar and readPVarIO must be strict in RDV in order to force
@@ -45,8 +43,7 @@ readPVar pvar =
 -- is not guaranteed.
 readPVarIO :: PVar a -> IO a
 readPVarIO pv =
-    readTVarIO (pvar_data pv) >>= \ rdv ->
-    case rdv of { (RDV v) -> return v }
+    readTVarIO (pvar_data pv) >>= \case { (RDV v) -> return v }
 {-# INLINE readPVarIO #-}
 
 eBadSpace :: String
@@ -56,7 +53,7 @@ eBadSpace = "VTx: mismatch between VTx VSpace and PVar VSpace"
 writePVar :: PVar a -> a -> VTx ()
 writePVar pvar v =
     getVTxSpace >>= \ space ->
-    if (space /= pvar_space pvar) then fail eBadSpace else
+    if space /= pvar_space pvar then fail eBadSpace else
     markForWrite pvar v >>
     liftSTM (writeTVar (pvar_data pvar) (RDV v))
 {-# INLINABLE writePVar #-}

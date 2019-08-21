@@ -37,8 +37,7 @@ withAddrValIO vc addr action =
                         }
     in
     withRdOnlyTxn vc $ \ txn ->
-    mdb_get' txn (vcache_db_memory vc) vAddr >>= \ mbData ->
-    case mbData of
+    mdb_get' txn (vcache_db_memory vc) vAddr >>= \case
         Just vData -> action vData -- found data in database (ideal)
         Nothing -> -- since not in the database, try the allocator
             let ff = Map.lookup addr . alloc_list in

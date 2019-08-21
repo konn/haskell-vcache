@@ -22,7 +22,6 @@ module Database.VCache.VPut
     , peekChildCount
     ) where
 
-import Control.Applicative
 import Data.Bits
 import Data.Char
 import Data.Word
@@ -45,8 +44,8 @@ import Database.VCache.VPutAux
 -- use the same VCache and addres space as where you're putting it.
 putVRef :: VRef a -> VPut ()
 putVRef ref = VPut $ \ s ->
-    if (vput_space s == vref_space ref) then _putVRef s ref else
-    fail $ "putVRef argument is not from destination VCache"
+    if vput_space s == vref_space ref then _putVRef s ref else
+    fail "putVRef argument is not from destination VCache"
 {-# INLINABLE putVRef #-}
 
 -- assuming destination and ref have same address space
@@ -55,7 +54,7 @@ _putVRef s ref =
     let cs = vput_children s in
     let c  = vref_addr ref in
     c `seq` -- don't hold onto vref
-    let s' = s { vput_children = (c:cs) } in
+    let s' = s { vput_children = c:cs } in
     return (VPutR () s')
 {-# INLINE _putVRef #-}
 
@@ -63,8 +62,8 @@ _putVRef s ref =
 -- and address space.
 putPVar :: PVar a -> VPut ()
 putPVar pvar = VPut $ \ s ->
-    if (vput_space s == pvar_space pvar) then _putPVar s pvar else
-    fail $ "putPVar argument is not from destination VCache"
+    if vput_space s == pvar_space pvar then _putPVar s pvar else
+    fail "putPVar argument is not from destination VCache"
 {-# INLINABLE putPVar #-}
 
 -- assuming destination and var have same address space
@@ -73,7 +72,7 @@ _putPVar s pvar =
     let cs = vput_children s in
     let c = pvar_addr pvar in
     c `seq` -- don't hold onto pvar
-    let s' = s { vput_children = (c:cs) } in
+    let s' = s { vput_children = c:cs } in
     return (VPutR () s')
 {-# INLINE _putPVar #-}
 
@@ -81,8 +80,8 @@ _putPVar s pvar =
 -- the target space does not match the given one.
 putVSpace :: VSpace -> VPut ()
 putVSpace vc = VPut $ \ s ->
-    if (vput_space s == vc) then return (VPutR () s) else
-    fail $ "putVSpace argument is not same as destination VCache"
+    if vput_space s == vc then return (VPutR () s) else
+    fail "putVSpace argument is not same as destination VCache"
 {-# INLINE putVSpace #-}
 
 -- | Put a Word in little-endian or big-endian form.
@@ -104,16 +103,16 @@ putWord64le, putWord64be :: Word64 -> VPut ()
 
 putWord16le w = reserving 2 $ VPut $ \ s -> do
     let p = vput_target s
-    let s' = s { vput_target = (p `plusPtr` 2) }
-    poke (p            ) (fromIntegral (w           ) :: Word8)
+    let s' = s { vput_target = p `plusPtr` 2 }
+    poke p (fromIntegral w :: Word8)
     poke (p `plusPtr` 1) (fromIntegral (w `shiftR` 8) :: Word8)
     return (VPutR () s')
 {-# INLINE putWord16le #-}
 
 putWord32le w = reserving 4 $ VPut $ \ s -> do
     let p = vput_target s
-    let s' = s { vput_target = (p `plusPtr` 4) }
-    poke (p            ) (fromIntegral (w            ) :: Word8)
+    let s' = s { vput_target = p `plusPtr` 4 }
+    poke p (fromIntegral w :: Word8)
     poke (p `plusPtr` 1) (fromIntegral (w `shiftR`  8) :: Word8)
     poke (p `plusPtr` 2) (fromIntegral (w `shiftR` 16) :: Word8)
     poke (p `plusPtr` 3) (fromIntegral (w `shiftR` 24) :: Word8)
@@ -122,8 +121,8 @@ putWord32le w = reserving 4 $ VPut $ \ s -> do
 
 putWord64le w = reserving 8 $ VPut $ \ s -> do
     let p = vput_target s
-    let s' = s { vput_target = (p `plusPtr` 8) }
-    poke (p            ) (fromIntegral (w            ) :: Word8)
+    let s' = s { vput_target = p `plusPtr` 8 }
+    poke p (fromIntegral w :: Word8)
     poke (p `plusPtr` 1) (fromIntegral (w `shiftR`  8) :: Word8)
     poke (p `plusPtr` 2) (fromIntegral (w `shiftR` 16) :: Word8)
     poke (p `plusPtr` 3) (fromIntegral (w `shiftR` 24) :: Word8)
@@ -136,33 +135,33 @@ putWord64le w = reserving 8 $ VPut $ \ s -> do
 
 putWord16be w = reserving 2 $ VPut $ \ s -> do
     let p = vput_target s
-    let s' = s { vput_target = (p `plusPtr` 2) }
-    poke (p            ) (fromIntegral (w `shiftR` 8) :: Word8)
-    poke (p `plusPtr` 1) (fromIntegral (w           ) :: Word8)
+    let s' = s { vput_target = p `plusPtr` 2 }
+    poke p (fromIntegral (w `shiftR` 8) :: Word8)
+    poke (p `plusPtr` 1) (fromIntegral w :: Word8)
     return (VPutR () s')
 {-# INLINE putWord16be #-}
 
 putWord32be w = reserving 4 $ VPut $ \ s -> do
     let p = vput_target s
-    let s' = s { vput_target = (p `plusPtr` 4) }
-    poke (p            ) (fromIntegral (w `shiftR` 24) :: Word8)
+    let s' = s { vput_target = p `plusPtr` 4 }
+    poke p (fromIntegral (w `shiftR` 24) :: Word8)
     poke (p `plusPtr` 1) (fromIntegral (w `shiftR` 16) :: Word8)
     poke (p `plusPtr` 2) (fromIntegral (w `shiftR`  8) :: Word8)
-    poke (p `plusPtr` 3) (fromIntegral (w            ) :: Word8)
+    poke (p `plusPtr` 3) (fromIntegral w :: Word8)
     return (VPutR () s')
 {-# INLINE putWord32be #-}
 
 putWord64be w = reserving 8 $ VPut $ \ s -> do
     let p = vput_target s
-    let s' = s { vput_target = (p `plusPtr` 8) }
-    poke (p            ) (fromIntegral (w `shiftR` 56) :: Word8)
+    let s' = s { vput_target = p `plusPtr` 8 }
+    poke p (fromIntegral (w `shiftR` 56) :: Word8)
     poke (p `plusPtr` 1) (fromIntegral (w `shiftR` 48) :: Word8)
     poke (p `plusPtr` 2) (fromIntegral (w `shiftR` 40) :: Word8)
     poke (p `plusPtr` 3) (fromIntegral (w `shiftR` 32) :: Word8)
     poke (p `plusPtr` 4) (fromIntegral (w `shiftR` 24) :: Word8)
     poke (p `plusPtr` 5) (fromIntegral (w `shiftR` 16) :: Word8)
     poke (p `plusPtr` 6) (fromIntegral (w `shiftR`  8) :: Word8)
-    poke (p `plusPtr` 7) (fromIntegral (w            ) :: Word8)
+    poke (p `plusPtr` 7) (fromIntegral w :: Word8)
     return (VPutR () s')
 {-# INLINE putWord64be #-}
 
@@ -177,7 +176,7 @@ putStorable a =
     let n = sizeOf a in
     reserving n $ VPut $ \ s -> do
         let pTgt = vput_target s
-        let s' = s { vput_target = (pTgt `plusPtr` n) }
+        let s' = s { vput_target = pTgt `plusPtr` n }
         pokeAligned (castPtr pTgt) a
         return (VPutR () s')
 {-# INLINABLE putStorable #-}
@@ -201,7 +200,7 @@ _putByteString (BSI.PS fpSrc p_off p_len) =
     VPut $ \ s -> withForeignPtr fpSrc $ \ pSrc -> do
         let pDst = vput_target s
         copyBytes pDst (pSrc `plusPtr` p_off) p_len
-        let s' = s { vput_target = (pDst `plusPtr` p_len) }
+        let s' = s { vput_target = pDst `plusPtr` p_len }
         return (VPutR () s')
 {-# INLINABLE _putByteString #-}
 
@@ -210,21 +209,21 @@ putc :: Char -> VPut ()
 putc a | c <= 0x7f      = putWord8 (fromIntegral c)
        | c <= 0x7ff     = reserving 2 $ VPut $ \ s -> do
                             let p  = vput_target s
-                            let s' = s { vput_target = (p `plusPtr` 2) }
-                            poke (p            ) (0xc0 .|. y)
+                            let s' = s { vput_target = p `plusPtr` 2 }
+                            poke p (0xc0 .|. y)
                             poke (p `plusPtr` 1) (0x80 .|. z)
                             return (VPutR () s')
        | c <= 0xffff    = reserving 3 $ VPut $ \ s -> do
                             let p  = vput_target s
-                            let s' = s { vput_target = (p `plusPtr` 3) }
-                            poke (p            ) (0xe0 .|. x)
+                            let s' = s { vput_target = p `plusPtr` 3 }
+                            poke p (0xe0 .|. x)
                             poke (p `plusPtr` 1) (0x80 .|. y)
                             poke (p `plusPtr` 2) (0x80 .|. z)
                             return (VPutR () s')
        | c <= 0x10ffff  = reserving 4 $ VPut $ \ s -> do
                             let p = vput_target s
-                            let s' = s { vput_target = (p `plusPtr` 4) }
-                            poke (p            ) (0xf0 .|. w)
+                            let s' = s { vput_target = p `plusPtr` 4 }
+                            poke p (0xf0 .|. w)
                             poke (p `plusPtr` 1) (0x80 .|. x)
                             poke (p `plusPtr` 2) (0x80 .|. y)
                             poke (p `plusPtr` 3) (0x80 .|. z)

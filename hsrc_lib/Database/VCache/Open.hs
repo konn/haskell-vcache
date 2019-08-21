@@ -65,7 +65,7 @@ openVCache nMB fp = do
     when (L.null fn) (fail $ "openVCache: " ++ eBadFile)
     EasyFile.createDirectoryIfMissing True fdir
     let fpLock = fp ++ "-lock"
-    let nBytes = (max 1 nMB) * 1024 * 1024
+    let nBytes = max 1 nMB * 1024 * 1024
     mbLock <- FileLock.tryLockFile fpLock FileLock.Exclusive
     case mbLock of
         Nothing -> ioError $ IOE.mkIOError
@@ -106,7 +106,7 @@ vcDefaultCacheLimit = 10 * 1000 * 1000
 vcInitCacheSizeEst :: CacheSizeEst
 vcInitCacheSizeEst = CacheSizeEst
     { csze_addr_size = sz -- err likely on high side to start
-    , csze_addr_sqsz = (sz * sz)
+    , csze_addr_sqsz = sz * sz
     }
     where sz = 2048 -- err likely on high side to start
 
@@ -180,7 +180,7 @@ openVC' nBytes fl fp = do
 
 -- our allocator should be set for the next *even* address.
 nextAllocAddress :: Address -> Address
-nextAllocAddress addr | (0 == (addr .&. 1)) = 2 + addr
+nextAllocAddress addr | 0 == (addr .&. 1) = 2 + addr
                       | otherwise           = 1 + addr
 
 -- Determine the last VCache VRef address allocated, based on the
@@ -190,7 +190,7 @@ findLastAddrAllocated txn dbiMemory = alloca $ \ pKey ->
     mdb_cursor_open' txn dbiMemory >>= \ crs ->
     mdb_cursor_get' MDB_LAST crs pKey nullPtr >>= \ bFound ->
     mdb_cursor_close' crs >>
-    if (not bFound) then return vcAllocStart else
+    if not bFound then return vcAllocStart else
     peek pKey >>= \ key ->
     let bBadSize = fromIntegral (sizeOf vcAllocStart) /= mv_size key in
     if bBadSize then fail "VCache memory table corrupted" else

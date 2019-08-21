@@ -40,7 +40,7 @@ frame0 :: Frame
 frame0 = Frame 1 IntSet.empty []
 
 newRWLock :: IO RWLock
-newRWLock = liftM2 RWLock (newMVar =<< newF2) newEmptyMVar where
+newRWLock = liftM2 RWLock (newMVar =<< newF2) newEmptyMVar
 
 newF2 :: IO FB
 newF2 = liftM2 FB newF newF
@@ -104,7 +104,7 @@ rotateReaderFrames l = mask_ $ do
 -- perform some action when a frame is cleared
 -- performs immediately, if possible.
 onFrameCleared :: F -> IO () -> IO ()
-onFrameCleared f action = atomicModifyIORef f addAction >>= id where
+onFrameCleared f action = join $ atomicModifyIORef f addAction where
     addAction frame =
         let bAlreadyClear = IntSet.null (frame_readers frame) in
         if bAlreadyClear then (frame0,action) else
@@ -133,7 +133,7 @@ addReader :: Frame -> (Frame, Int)
 addReader f =
     let r     = frame_reader_next f in
     let rdrs' = IntSet.insert r (frame_readers f) in
-    let f'    = f { frame_reader_next = (r + 1)
+    let f'    = f { frame_reader_next = r + 1
                   , frame_readers = rdrs' } in
     (f', r)
 

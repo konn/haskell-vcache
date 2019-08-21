@@ -63,7 +63,7 @@ type Address = Word64 -- with '0' as special case
 
 -- | VRefs and PVars are divided among odds and evens.
 isVRefAddr, isPVarAddr :: Address -> Bool
-isVRefAddr addr = (0 == (1 .&. addr))
+isVRefAddr addr = 0 == (1 .&. addr)
 isPVarAddr = not . isVRefAddr
 {-# INLINE isVRefAddr #-}
 {-# INLINE isPVarAddr #-}
@@ -137,7 +137,7 @@ takeVREph !addr !ty !em =
          Just tym -> case Map.lookup ty tym of
             Nothing -> Nothing
             Just e ->
-                let em' = if (1 == Map.size tym)
+                let em' = if 1 == Map.size tym
                         then Map.delete addr em
                         else Map.insert addr (Map.delete ty tym) em
                 in
@@ -208,7 +208,7 @@ touchCache !cm !w =
 mkVRefCache :: a -> Int -> CacheMode -> Cache a
 mkVRefCache val !w !cm = Cached val cw where
     cw = m .|. cs 0 64
-    cs r k = if ((k > w) || (r == 0x1f)) then r else cs (r+1) (k*2)
+    cs r k = if (k > w) || (r == 0x1f) then r else cs (r+1) (k*2)
     m = cacheModeBits cm
 
 -- | A PVar is a mutable variable backed by VCache. PVars can be read
@@ -262,7 +262,7 @@ addPVEph pve = Map.insert (pveph_addr pve) pve
 -- I need some way to force an evaluation when a PVar is first
 -- read, i.e. in order to load the initial value, without forcing
 -- on every read. For the moment, I'm using a simple type wrapper.
-data RDV a = RDV a
+newtype RDV a = RDV a
 
 -- | VCache supports a filesystem-backed address space plus a set of
 -- persistent, named root variables that can be loaded from one run
@@ -545,8 +545,7 @@ data VPutR r = VPutR
     }
 
 instance Functor VPut where
-    fmap f m = VPut $ \ s ->
-        _vput m s >>= \ (VPutR r s') ->
+    fmap f m = VPut $ _vput m >=> \ (VPutR r s') ->
         return (VPutR (f r) s')
     {-# INLINE fmap #-}
 instance Applicative VPut where
@@ -556,12 +555,10 @@ instance Applicative VPut where
     {-# INLINE (<*>) #-}
 instance Monad VPut where
     fail msg = VPut (\ _ -> fail ("VCache.VPut.fail " ++ msg))
-    return r = VPut (\ s -> return (VPutR r s))
-    m >>= k = VPut $ \ s ->
-        _vput m s >>= \ (VPutR r s') ->
+    return r = VPut (return . VPutR r)
+    m >>= k = VPut $ _vput m >=> \ (VPutR r s') ->
         _vput (k r) s'
-    m >> k = VPut $ \ s ->
-        _vput m s >>= \ (VPutR _ s') ->
+    m >> k = VPut $ _vput m >=> \ (VPutR _ s') ->
         _vput k s'
     {-# INLINE return #-}
     {-# INLINE (>>=) #-}
@@ -585,8 +582,7 @@ data VGetR r
 
 
 instance Functor VGet where
-    fmap f m = VGet $ \ s ->
-        _vget m s >>= \ c ->
+    fmap f m = VGet $ _vget m >=> \ c ->
         return $ case c of
             VGetR r s' -> VGetR (f r) s'
             VGetE msg -> VGetE msg
@@ -598,15 +594,11 @@ instance Applicative VGet where
     {-# INLINE (<*>) #-}
 instance Monad VGet where
     fail msg = VGet (\ _ -> return (VGetE msg))
-    return r = VGet (\ s -> return (VGetR r s))
-    m >>= k = VGet $ \ s ->
-        _vget m s >>= \ c ->
-        case c of
+    return r = VGet (return . VGetR r)
+    m >>= k = VGet $ _vget m >=> \case
             VGetE msg -> return (VGetE msg)
             VGetR r s' -> _vget (k r) s'
-    m >> k = VGet $ \ s ->
-        _vget m s >>= \ c ->
-        case c of
+    m >> k = VGet $ _vget m >=> \case
             VGetE msg -> return (VGetE msg)
             VGetR _ s' -> _vget k s'
     {-# INLINE fail #-}
@@ -621,8 +613,7 @@ instance Alternative VGet where
 instance MonadPlus VGet where
     mzero = fail "mzero"
     mplus f g = VGet $ \ s ->
-        _vget f s >>= \ c ->
-        case c of
+        _vget f s >>= \case
             VGetE _ -> _vget g s
             r -> return r
     {-# INLINE mzero #-}

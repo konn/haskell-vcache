@@ -48,12 +48,12 @@ vcacheStats vc = withRdOnlyTxn vc $ \ txnStat -> do
     cSizeEst <- readIORef (vcache_csize vc)
     cvrefs <- readMVar (vcache_cvrefs vc)
 
-    let fileSize = (1 + (fromIntegral $ me_last_pgno envInfo))
-                 * (fromIntegral $ ms_psize envStat)
-    let vrefCount = (fromIntegral $ ms_entries hashStat)
-    let pvarCount = (fromIntegral $ ms_entries dbMemStat) - vrefCount
-    let ephCount = (fromIntegral $ ms_entries ephStat)
-    let rootCount = (fromIntegral $ ms_entries rootStat)
+    let fileSize = (1 + fromIntegral (me_last_pgno envInfo))
+                 * fromIntegral (ms_psize envStat)
+    let vrefCount = fromIntegral $ ms_entries hashStat
+    let pvarCount = fromIntegral (ms_entries dbMemStat) - vrefCount
+    let ephCount = fromIntegral $ ms_entries ephStat
+    let rootCount = fromIntegral $ ms_entries rootStat
     let cacheSizeBytes = ceiling $ fromIntegral (Map.size cvrefs)
                                  * sqrt (csze_addr_sqsz cSizeEst)
     let memVRefsCount = Map.foldl' (\ a b -> a + Map.size b) 0 (mem_vrefs memory)

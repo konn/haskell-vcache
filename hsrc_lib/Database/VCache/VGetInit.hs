@@ -33,7 +33,7 @@ import Database.VCache.VGetAux
 vgetInit :: VGet ()
 vgetInit =
     readAddrBytes >>= \ nAddrBytes ->
-    if (0 == nAddrBytes) then return () else
+    if 0 == nAddrBytes then return () else
     VGet $ \ s ->
         let bUnderflow = nAddrBytes > (vget_limit s `minusPtr` vget_target s) in
         if bUnderflow then return eBadAddressRegion else
@@ -57,8 +57,8 @@ readAddrBytes = readAddrBytes' 0
 readAddrBytes' :: Int -> VGet Int
 readAddrBytes' !nAccum =
     getWord8FromEnd >>= \ w8 ->
-    let nAccum' = (nAccum `shiftL` 7) .|. (fromIntegral (0x7f .&. w8)) in
-    if (w8 < 0x80) then return $! nAccum' else
+    let nAccum' = (nAccum `shiftL` 7) .|. fromIntegral (0x7f .&. w8) in
+    if w8 < 0x80 then return $! nAccum' else
     readAddrBytes' nAccum'
 
 -- read a variable list of at least one address

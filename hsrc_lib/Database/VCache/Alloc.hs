@@ -1,4 +1,4 @@
-{-# LANGUAGE ForeignFunctionInterface, BangPatterns #-}
+{-# LANGUAGE ForeignFunctionInterface, BangPatterns, LambdaCase #-}
 
 -- | Constructors and Allocators for VRefs and PVars.
 --
@@ -33,7 +33,6 @@ module Database.VCache.Alloc
 
 import Control.Exception
 import Control.Monad
-import Control.Applicative
 import Data.Word
 import Data.IORef
 import Data.ByteString (ByteString)
@@ -131,7 +130,7 @@ clearVRef !vc !addr !ty = delFromCache >> delFromMem where
 _getVREphCache :: VREph -> IO (Maybe (IORef (Cache a)))
 _getVREphCache = Weak.deRefWeak . _u where
     _u :: VREph -> Weak (IORef (Cache a))
-    _u (VREph { vreph_cache = w }) = _c w
+    _u VREph { vreph_cache = w } = _c w
     _c :: Weak (IORef (Cache b)) -> Weak (IORef (Cache a))
     _c = unsafeCoerce
 {-# INLINE _getVREphCache #-}
@@ -202,7 +201,7 @@ tryDelPVEph :: Address -> PVEphMap -> IO PVEphMap
 tryDelPVEph !addr !mpv =
     case Map.lookup addr mpv of
         Nothing -> return mpv
-        Just (PVEph { pveph_data = wk }) ->
+        Just PVEph { pveph_data = wk } ->
             Weak.deRefWeak wk >>= \ mbd ->
             if isJust mbd then return mpv else
             return $! Map.delete addr mpv
@@ -211,7 +210,7 @@ tryDelPVEph !addr !mpv =
 _getPVEphTVar :: PVEph -> IO (Maybe (TVar (RDV a)))
 _getPVEphTVar = Weak.deRefWeak . _u where
     _u :: PVEph -> Weak (TVar (RDV a))
-    _u (PVEph { pveph_data = w }) = _c w
+    _u PVEph { pveph_data = w } = _c w
     _c :: Weak (TVar (RDV b)) -> Weak (TVar (RDV a))
     _c = unsafeCoerce
 {-# INLINE _getPVEphTVar #-}
@@ -222,7 +221,7 @@ newVRefIO :: (VCacheable a) => VSpace -> a -> CacheMode -> IO (VRef a)
 newVRefIO vc v cm =
     runVPutIO vc (put v) >>= \ ((), _data) ->
     allocVRefIO vc _data >>= \ vref ->
-    join $ atomicModifyIORef (vref_cache vref) $ \ c -> case c of
+    join $ atomicModifyIORef (vref_cache vref) $ \case
         Cached r bf ->
             let bf' = touchCache cm bf in
             let c' = Cached r bf' in
@@ -264,9 +263,7 @@ allocVRefIO !vc !_data =
     withStoreableVal _name $ \ vName ->
     withByteStringVal _data $ \ vData ->
     withRdOnlyTxn vc $ \ txn ->
-    listDups' txn (vcache_db_caddrs vc) vName >>= \ caddrs ->
-    seek (candidateVRefInDB vc txn vData) caddrs >>= \ mbVRef ->
-    case mbVRef of
+    listDups' txn (vcache_db_caddrs vc) vName >>= (seek (candidateVRefInDB vc txn vData) >=> \case
         Just !vref -> return vref -- found matching VRef in database
         Nothing -> modifyMVarMasked (vcache_memory vc) $ \ m ->
             case findRecentVRef _name _data m of
@@ -275,11 +272,11 @@ allocVRefIO !vc !_data =
                     let ac = mem_alloc m
                     let addr = alloc_new_addr ac
                     let frm' = addVRefAlloc addr _name _data (alloc_frm_next ac)
-                    let addr' = 2 + (alloc_new_addr ac)
+                    let addr' = 2 + alloc_new_addr ac
                     let ac' = ac { alloc_new_addr = addr', alloc_frm_next = frm' }
                     let m' = m { mem_alloc = ac' }
                     signalAlloc vc
-                    addr2vref' vc addr m'
+                    addr2vref' vc addr m')
 
 -- add new VRef to next allocation frame.
 addVRefAlloc :: Address -> Int -> ByteString -> AllocFrame -> AllocFrame
@@ -296,7 +293,7 @@ findRecentVRef _name _data m = allocFrameSearch ff (mem_alloc m) where
     ff frm = Map.lookup _name (alloc_seek frm) >>= L.find (match frm)
     match frm addr = isVRef && dataMatch && available where
         isVRef = isVRefAddr addr
-        dataMatch = maybe False (== _data) (Map.lookup addr (alloc_list frm))
+        dataMatch = (== Just _data) (Map.lookup addr (alloc_list frm))
         available = not $ recentGC (mem_gc m) addr
 
 -- list all values associated with a given key
@@ -336,10 +333,10 @@ candidateVRefInDB vc txn vData vCandidateAddr = do
             let bSameSize = mv_size vData == mv_size vData' in
             if not bSameSize then return Nothing else
             c_memcmp (mv_data vData) (mv_data vData') (mv_size vData) >>= \ o ->
-            if (0 /= o) then return Nothing else
+            if 0 /= o then return Nothing else
             peekAddr vCandidateAddr >>= \ addr -> -- exact match! But maybe GC'd.
             modifyMVarMasked (vcache_memory vc) $ \ m ->
-                if (recentGC (mem_gc m) addr) then return (m, Nothing) else
+                if recentGC (mem_gc m) addr then return (m, Nothing) else
                 addr2vref' vc addr m >>= \ (m', vref) ->
                 return (m', Just vref)
 
@@ -423,7 +420,7 @@ newPVars xs = do
         tvars <- mapM (newTVarIO . RDV) xs
         let apvs = fmap (allocPlaceHolder BS.empty) tvars
         allocPVars vc apvs
-    sequence_ (L.zipWith markForWrite pvars xs)
+    zipWithM_ markForWrite pvars xs
     return pvars
 
 -- | Create an array of adjacent PVars via the IO monad.
@@ -455,14 +452,14 @@ _allocPVar _dummy !vc !apv !m = do
     let ty = typeOf _dummy
     let tvar = alloc_pvar_tvar apv
     let ac = mem_alloc m
-    let addr = 1 + (alloc_new_addr ac)
+    let addr = 1 + alloc_new_addr ac
     pveph <- mkPVEph vc addr tvar ty
     let pvar = PVar addr tvar vc ty put
     let _name = alloc_pvar_name apv
     let _data = alloc_pvar_data apv
     let frm' = addPVarAlloc addr _name _data (alloc_frm_next ac)
     let pvars' = addPVEph pveph (mem_pvars m)
-    let addr' = 2 + (alloc_new_addr ac)
+    let addr' = 2 + alloc_new_addr ac
     let ac' = ac { alloc_new_addr = addr', alloc_frm_next = frm' }
     let m' = m { mem_pvars = pvars', mem_alloc = ac' }
     return (m', pvar)
@@ -510,9 +507,7 @@ loadRootPVarIO vc !name ini =
 -- not in those locations, go ahead and construct it new.
 _loadRootPVarIO :: (VCacheable a) => VSpace -> ByteString -> a -> IO (PVar a)
 _loadRootPVarIO vc !_name ini = withRdOnlyTxn vc $ \ txn ->
-    withByteStringVal _name $ \ rootKey ->
-    mdb_get' txn (vcache_db_vroots vc) rootKey >>= \ mbRoot ->
-    case mbRoot of
+    withByteStringVal _name $ mdb_get' txn (vcache_db_vroots vc) >=> \case
         Just val -> peekAddr val >>= addr2pvar vc -- found root in database
         Nothing -> -- allocate new PVar or find in recent allocations
             preAllocPVarIO vc _name ini >>= \ apv -> -- common case is new var

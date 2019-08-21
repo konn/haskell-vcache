@@ -1,4 +1,4 @@
-{-# LANGUAGE BangPatterns #-}
+
 
 module Database.VCache.VPutFini
     ( vputFini
@@ -53,7 +53,7 @@ putChildren = ini where
     ini (x:xs) = putVarNat (fromIntegral x) >> go x xs
     go _ [] = return ()
     go p (x:xs) =
-        let offset = (fromIntegral x) - (fromIntegral p) in
+        let offset = fromIntegral x - fromIntegral p in
         putVarInt offset >> go x xs
 
 -- Obtain a strict bytestring corresponding to VPut output.
