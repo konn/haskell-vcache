@@ -1,3 +1,7 @@
+tags
+.stack-work/
+stack.yaml.lock
+new-dist/
 dist/
 tmp/
 *~
