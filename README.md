@@ -1,9 +1,9 @@
 haskell-vcache
 ==============
 
-* work with structured acyclic values larger than system memory 
-* update persistent variables and STM TVars together, atomically 
-* structure sharing; diff structures with reference equality 
+* work with structured acyclic values larger than system memory
+* update persistent variables and STM TVars together, atomically
+* structure sharing; diff structures with reference equality
 * subdirectories for roots support decomposition of applications
 
 Concepts
@@ -33,13 +33,13 @@ Haskell packages similar to VCache:
 Notes and Caveats
 -----------------
 
-VCache works best if you open only one instance. Libraries, frameworks, plugins, etc. that use VCache should not instantiate it, instead accepting VCache as an argument. Open VCache in main, then grant each persistent software component a stable subdirectory to resist namespace collisions between PVar roots. 
+VCache works best if you open only one instance. Libraries, frameworks, plugins, etc. that use VCache should not instantiate it, instead accepting VCache as an argument. Open VCache in main, then grant each persistent software component a stable subdirectory to resist namespace collisions between PVar roots.
 
 A VCache file may be opened by only one process at a time, and only once within said process. The LMDB layer is used with `MDB_NOLOCK` and is thus unsuitable for IPC. Concurrent access to VCache is only safe if using multiple threads within one process. A lockfile is used to prevent accidentally opening a VCache resource more than once.
 
-VCache transactions build upon STM. The caveats for STM apply. Long running transactions may be starved by short-running transactions. If heavy contention is anticipated or observed, developers may need to model queues and channels and external patterns for cooperative concurrency. 
+VCache transactions build upon STM. The caveats for STM apply. Long running transactions may be starved by short-running transactions. If heavy contention is anticipated or observed, developers may need to model queues and channels and external patterns for cooperative concurrency.
 
-VCache is not a database. Features for search, query, query optimization, index, join, import, export, replication, sharding, and so on are not supported. VCache is just a persistence layer. Persistence may be useful for modeling long-running relationships with a real database, or for modeling an ad-hoc database using Haskell types. 
+VCache is not a database. Features for search, query, query optimization, index, join, import, export, replication, sharding, and so on are not supported. VCache is just a persistence layer. Persistence may be useful for modeling long-running relationships with a real database, or for modeling an ad-hoc database using Haskell types.
 
 This package does not provide the datatypes to make VCache especially useful. Container types - B-trees, tries, finger-trees, ropes, arrays, hashmaps, etc. - implemented leveraging VRefs type would make it a lot easier to pick up and use VCache. This package does not provide type versioning. A variation of SafeCopy for the VCacheable instance seems a worthy investment, but is not a major priority at this time.
 
