@@ -24,6 +24,7 @@ module Database.VCache.Types
     , recentGC
 
     , withRdOnlyTxn
+    , withStoreableVal
     , withByteStringVal
 
     , getVTxSpace, markForWrite, liftSTM
@@ -52,6 +53,8 @@ import System.FileLock (FileLock)
 import Database.LMDB.Raw
 import Foreign.Ptr
 import Foreign.ForeignPtr (withForeignPtr)
+import Foreign.Marshal
+import Foreign.Storable
 
 import Database.VCache.RWLock
 
@@ -426,6 +429,13 @@ withRdOnlyTxn vc = withLock . bracket newTX endTX where
     newTX = mdb_txn_begin (vcache_db_env vc) Nothing True
     endTX = mdb_txn_abort
 {-# INLINE withRdOnlyTxn #-}
+
+withStoreableVal :: Storable a => a -> (MDB_val -> IO a) -> IO a
+withStoreableVal val action = with val $ \p -> action $ MDB_val
+    { mv_size = fromIntegral $ sizeOf val
+    , mv_data = p `plusPtr` alignment val
+    }
+{-# INLINE withStoreableVal #-}
 
 withByteStringVal :: ByteString -> (MDB_val -> IO a) -> IO a
 withByteStringVal (BSI.PS fp off len) action = withForeignPtr fp $ \ p ->
