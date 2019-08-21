@@ -42,6 +42,7 @@ import qualified Data.List as L
 import qualified Data.Map.Strict as Map
 import Data.Typeable
 import Data.Maybe
+import Data.Hashable
 
 import Foreign.C.Types
 import Foreign.Ptr
@@ -63,7 +64,6 @@ import Database.VCache.Types
 import Database.VCache.Path
 import Database.VCache.Aligned
 import Database.VCache.VPutFini
-import Database.VCache.Hash
 import Database.VCache.Read
 
 -- | Obtain a VRef given an address and value. Not initially cached.
@@ -261,7 +261,7 @@ newVRefIO' !vc v = runVPutIO vc (put v) >>= allocVRefIO vc . snd
 allocVRefIO :: (VCacheable a) => VSpace -> ByteString -> IO (VRef a)
 allocVRefIO !vc !_data = 
     let _name = hash _data in
-    withByteStringVal _name $ \ vName ->
+    withStoreableVal _name $ \ vName ->
     withByteStringVal _data $ \ vData ->
     withRdOnlyTxn vc $ \ txn ->
     listDups' txn (vcache_db_caddrs vc) vName >>= \ caddrs ->
@@ -282,7 +282,7 @@ allocVRefIO !vc !_data =
                     addr2vref' vc addr m'
 
 -- add new VRef to next allocation frame.
-addVRefAlloc :: Address -> ByteString -> ByteString -> AllocFrame -> AllocFrame
+addVRefAlloc :: Address -> Int -> ByteString -> AllocFrame -> AllocFrame
 addVRefAlloc addr _name _data (AllocFrame l s r i) =
     let ul = Map.insert addr _data in
     let insAddr = Just . (:) addr . fromMaybe [] in
@@ -291,7 +291,7 @@ addVRefAlloc addr _name _data (AllocFrame l s r i) =
 
 -- Find recently allocated VRef with a matching data, if one exists.
 -- This will also filter out addresses that are recently GC'd.
-findRecentVRef :: ByteString -> ByteString -> Memory -> Maybe Address
+findRecentVRef :: Int -> ByteString -> Memory -> Maybe Address
 findRecentVRef _name _data m = allocFrameSearch ff (mem_alloc m) where
     ff frm = Map.lookup _name (alloc_seek frm) >>= L.find (match frm)
     match frm addr = isVRef && dataMatch && available where

@@ -369,7 +369,7 @@ data Allocator = Allocator
 -- while the writer is busy in the background. 
 data AllocFrame = AllocFrame 
     { alloc_list :: !(Map Address ByteString)    -- recent allocations
-    , alloc_seek :: !(Map ByteString [Address])  -- vref content addressing 
+    , alloc_seek :: !(Map Int [Address])  -- vref content addressing 
     , alloc_root :: ![(Address, ByteString)]     -- root PVars with path names
     , alloc_init :: {-# UNPACK #-} !Address      -- next address at frame start.
     }
@@ -430,7 +430,7 @@ withRdOnlyTxn vc = withLock . bracket newTX endTX where
     endTX = mdb_txn_abort
 {-# INLINE withRdOnlyTxn #-}
 
-withStoreableVal :: Storable a => a -> (MDB_val -> IO a) -> IO a
+withStoreableVal :: Storable a => a -> (MDB_val -> IO b) -> IO b
 withStoreableVal val action = with val $ \p -> action $ MDB_val
     { mv_size = fromIntegral $ sizeOf val
     , mv_data = p `plusPtr` alignment val

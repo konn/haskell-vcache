@@ -83,7 +83,7 @@ type GCBatch = WriteBatch
 -- For updating secondary indices, track names to addresses.
 -- In this case, we use the nursery reference: older addresses
 -- are deleted, while newer addresses are inserted.
-type UpdSeek = Map ByteString [Address]
+type UpdSeek = Map Int [Address]
 
 addrSize :: Int
 addrSize = sizeOf (undefined :: Address)
@@ -227,7 +227,7 @@ updateContentAddressTable vc txn allocInit updSeek =
             let flags = compileWriteFlags []
             mdb_cursor_del' flags chash
     let processHash (_hash, addrs) =
-            withByteStringVal _hash $ \ vKey ->
+            withStoreableVal _hash $ \ vKey ->
             forM_ addrs $ \ addr ->
             poke pAddr addr >> -- prepares vAddr
             if addr < allocInit then deleteHash vKey addr 
@@ -392,7 +392,7 @@ updateVirtualMemory vc txn allocStart fb =
 
 -- here we might have one bytestring to many addresses... but this is 
 -- extremely unlikely.
-addHash :: ByteString -> Address -> UpdSeek -> UpdSeek
+addHash :: Int -> Address -> UpdSeek -> UpdSeek
 addHash h addr = Map.alter f h where
     f = Just . (:) addr . fromMaybe [] 
 
