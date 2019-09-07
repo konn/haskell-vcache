@@ -7,7 +7,6 @@ module Database.VCache.VCacheable
     , module Database.VCache.VPut
     ) where
 
-import Control.Applicative
 import Control.Monad
 
 import Data.Word
@@ -33,14 +32,14 @@ instance VCacheable Integer where
     {-# INLINE put #-}
 
 instance VCacheable Bool where
-    get = getWord8 >>= \ n -> case n of
+    get = getWord8 >>= \case
         0 -> return False
         1 -> return True
         _ -> fail "Boolean expects a 0 or 1 byte"
     put False = putWord8 0
     put True  = putWord8 1
 
-instance VCacheable Char where 
+instance VCacheable Char where
     get = getc
     put = putc
     {-# INLINE get #-}
@@ -54,7 +53,7 @@ instance VCacheable Word8 where
 
 instance VCacheable BS.ByteString where
     get = getVarNat >>= getByteString . fromIntegral
-    put s = putVarNat (fromIntegral $ BS.length s) >> putByteString s 
+    put s = putVarNat (fromIntegral $ BS.length s) >> putByteString s
     {-# INLINE get #-}
     {-# INLINE put #-}
 
@@ -92,7 +91,7 @@ instance VCacheable () where
 -- `Maybe a` may be upgraded transparently to [a], and may share
 -- structure with single element lists.
 instance (VCacheable a) => VCacheable (Maybe a) where
-    get = getWord8 >>= \ n -> case n of 
+    get = getWord8 >>= \case
         0 -> return Nothing
         1 -> Just <$> get
         _ -> fail "Type `Maybe a` expects prefix byte 0 or 1"
@@ -100,7 +99,7 @@ instance (VCacheable a) => VCacheable (Maybe a) where
     put (Just a) = putWord8 1 >> put a
 
 instance (VCacheable a, VCacheable b) => VCacheable (Either a b) where
-    get = getWord8 >>= \ lr -> case lr of
+    get = getWord8 >>= \case
         0 -> Left <$> get
         1 -> Right <$> get
         _ -> fail "Type `Either a b` expects prefix byte 0 or 1"
@@ -112,7 +111,7 @@ instance (VCacheable a, VCacheable b) => VCacheable (Either a b) where
 -- reversing the list, i.e. thus optimizing for read.
 instance (VCacheable a) => VCacheable [a] where
     get = do
-        nCount <- liftM fromIntegral getVarNat
+        nCount <- fmap fromIntegral getVarNat
         replicateReversed [] nCount get
     put ls = do
         let (nCount, lsr) = countAndReverse ls
@@ -147,14 +146,14 @@ instance (VCacheable a, VCacheable b, VCacheable c) => VCacheable (a,b,c) where
     {-# INLINE get #-}
     {-# INLINE put #-}
 
-instance (VCacheable a, VCacheable b, VCacheable c, VCacheable d) 
+instance (VCacheable a, VCacheable b, VCacheable c, VCacheable d)
     => VCacheable (a,b,c,d) where
     get = liftM4 (,,,) get get get get
     put (a,b,c,d) = do { put a; put b; put c; put d }
     {-# INLINE get #-}
     {-# INLINE put #-}
 
-instance (VCacheable a, VCacheable b, VCacheable c, VCacheable d, VCacheable e) 
+instance (VCacheable a, VCacheable b, VCacheable c, VCacheable d, VCacheable e)
     => VCacheable (a,b,c,d,e) where
     get = liftM5 (,,,,) get get get get get
     put (a,b,c,d,e) = do { put a; put b; put c; put d; put e }
@@ -163,7 +162,7 @@ instance (VCacheable a, VCacheable b, VCacheable c, VCacheable d, VCacheable e)
 
 instance (VCacheable a, VCacheable b, VCacheable c, VCacheable d, VCacheable e
          , VCacheable f) => VCacheable (a,b,c,d,e,f) where
-    get = 
+    get =
         do a <- get; b <- get; c <- get
            d <- get; e <- get; f <- get
            return (a,b,c,d,e,f)
@@ -173,7 +172,7 @@ instance (VCacheable a, VCacheable b, VCacheable c, VCacheable d, VCacheable e
 
 instance (VCacheable a, VCacheable b, VCacheable c, VCacheable d, VCacheable e
          , VCacheable f, VCacheable g) => VCacheable (a,b,c,d,e,f,g) where
-    get = 
+    get =
         do a <- get; b <- get; c <- get
            d <- get; e <- get; f <- get; g <- get
            return (a,b,c,d,e,f,g)

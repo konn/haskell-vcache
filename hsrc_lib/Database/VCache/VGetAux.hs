@@ -1,6 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 -- This module mostly exists to avoid cyclic dependencies
-module Database.VCache.VGetAux 
+module Database.VCache.VGetAux
     ( getWord8FromEnd
     , getWord8
     , isEmpty, vgetStateEmpty
@@ -10,7 +10,6 @@ module Database.VCache.VGetAux
     , peekByte
     ) where
 
-import Control.Applicative
 import Data.Word
 import Data.Bits
 import qualified Data.List as L
@@ -19,7 +18,7 @@ import Foreign.Storable
 import Database.VCache.Types
 
 -- | Read one byte of data, or fail if not enough data.
-getWord8 :: VGet Word8 
+getWord8 :: VGet Word8
 getWord8 = consuming 1 $ VGet $ \ s -> do
     let p = vget_target s
     r <- peekByte p
@@ -50,11 +49,11 @@ isEmpty = VGet $ \ s ->
 
 vgetStateEmpty :: VGetS -> Bool
 vgetStateEmpty s = (vget_target s == vget_limit s)
-                && (L.null (vget_children s))
+                && L.null (vget_children s)
 {-# INLINE vgetStateEmpty #-}
 
 -- | Get an integer represented in the Google protocol buffers zigzag
--- 'varint' encoding, e.g. as produced by 'putVarInt'. 
+-- 'varint' encoding, e.g. as produced by 'putVarInt'.
 getVarInt :: VGet Integer
 getVarInt = unZigZag <$> getVarNat
 {-# INLINE getVarInt #-}
@@ -63,7 +62,7 @@ getVarInt = unZigZag <$> getVarNat
 unZigZag :: Integer -> Integer
 unZigZag !n =
     let (q,r) = n `divMod` 2 in
-    if (1 == r) then negate q - 1
+    if 1 == r then negate q - 1
                 else q
 {-# INLINE unZigZag #-}
 
@@ -78,7 +77,7 @@ getVarNat' :: Integer -> VGet Integer
 getVarNat' !n =
     getWord8 >>= \ w ->
     let n' = (128 * n) + fromIntegral (w .&. 0x7f) in
-    if (w < 128) then return $! n'
+    if w < 128 then return $! n'
                  else getVarNat' n'
 
 
@@ -87,11 +86,11 @@ getVarNat' !n =
 consuming :: Int -> VGet a -> VGet a
 consuming n op = VGet $ \ s ->
     let pConsuming = vget_target s `plusPtr` n in
-    if (pConsuming > vget_limit s) then return (VGetE "not enough data") else 
-    _vget op s 
+    if pConsuming > vget_limit s then return (VGetE "not enough data") else
+    _vget op s
 {-# RULES
-"consuming>>consuming"  forall n1 n2 f g . consuming n1 f >> consuming n2 g = consuming (n1+n2) (f>>g)
-"consuming>>=consuming" forall n1 n2 f g . consuming n1 f >>= consuming n2 . g = consuming (n1+n2) (f>>=g)
+"consuming>>consuming" [~4]  forall n1 n2 f g . consuming n1 f >> consuming n2 g = consuming (n1+n2) (f>>g)
+"consuming>>=consuming" [~4] forall n1 n2 f g . consuming n1 f >>= consuming n2 . g = consuming (n1+n2) (f>>=g)
  #-}
-{-# INLINABLE consuming #-}
+{-# INLINABLE [3] consuming #-}
 

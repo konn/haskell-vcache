@@ -1,4 +1,4 @@
-{-# LANGUAGE BangPatterns #-}
+
 
 module Database.VCache.VPutFini
     ( vputFini
@@ -8,6 +8,7 @@ module Database.VCache.VPutFini
 
 import Control.Exception (onException)
 import Data.IORef
+import Data.ByteString (ByteString)
 import Foreign.Ptr
 import Foreign.ForeignPtr
 import Foreign.Marshal.Alloc
@@ -18,7 +19,7 @@ import Database.VCache.Types
 import Database.VCache.VPutAux
 
 -- | When we're just about done with VPut, we really have one more
--- task to perform: to output the address list for any contained 
+-- task to perform: to output the address list for any contained
 -- PVars and VRefs. These addresses are simply concatenated onto the
 -- normal byte output, with a final size value (not including itself)
 -- to indicate how far to jump back.
@@ -49,15 +50,15 @@ vputFini = do
 putChildren :: [Address] -> VPut ()
 putChildren = ini where
     ini [] = return ()
-    ini (x:xs) = putVarNat (fromIntegral x) >> go x xs 
+    ini (x:xs) = putVarNat (fromIntegral x) >> go x xs
     go _ [] = return ()
-    go p (x:xs) = 
-        let offset = (fromIntegral x) - (fromIntegral p) in
+    go p (x:xs) =
+        let offset = fromIntegral x - fromIntegral p in
         putVarInt offset >> go x xs
 
 -- Obtain a strict bytestring corresponding to VPut output.
 -- Also returns any other computed result, usually `()`.
-runVPutIO :: VSpace -> VPut a -> IO (a, WriteCell)
+runVPutIO :: VSpace -> VPut a -> IO (a, ByteString)
 runVPutIO vs action = do
     let initialSize = 2000 -- avoid reallocs for small records
     pBuff <- mallocBytes initialSize
@@ -76,10 +77,9 @@ runVPutIO vs action = do
     pBuffR <- reallocBytes pBuff' len -- reclaim unused space
     fpBuff' <- newForeignPtr finalizerFree pBuffR
     let bytes = BSI.fromForeignPtr fpBuff' 0 len
-    let deps = vput_children s0 
-    bytes `seq` deps `seq` return (r, (bytes, deps))
+    return (r, bytes)
 {-# NOINLINE runVPutIO #-}
 
-runVPut :: VSpace -> VPut a -> (a, WriteCell)
+runVPut :: VSpace -> VPut a -> (a, ByteString)
 runVPut vs action = unsafePerformIO (runVPutIO vs action)
 

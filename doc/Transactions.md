@@ -11,7 +11,7 @@ A relevant concern is having a sequence of two transactions:
 * first transaction writes A,B,C
 * second transaction writes B,C,D
 
-The goal is to put a consistent set of values into the LMDB layer. 
+The goal is to put a consistent set of values into the LMDB layer.
 
 Under the first option, we could write consistent data to A,B,C even though subsequent data has been written to B,C. However, this does introduce a challenge of serializing the two transactions: how do we know that A,B,C is logically prior to B,C,D anyway?
 
@@ -27,7 +27,7 @@ For option 2, we might be able to diminish the bottleneck by means of registerin
 
 A likely answer is that we'll be forced to serialize all VCache transactions.
 
-How much will this hurt? Well, for most of my own use cases, I'd be using just a few variables for most transactions anyway, so the conflict is inevitable. 
+How much will this hurt? Well, for most of my own use cases, I'd be using just a few variables for most transactions anyway, so the conflict is inevitable.
 Batching and laziness potentially allow a lot of transactions to operate mostly in parallel, only resolving their ordering rather than their fully comptued values. A lot of computation can be implicitly shifted into serialization by background threads.
 
 I suspect we can still achieve an acceptable level of parallelism even if the transactions become a bottleneck. But it may require some cleverness from developers.

@@ -10,11 +10,11 @@ import Database.VCache.Types
 import Database.VCache.VGetAux
 
 -- | For VGet from the database, we start with just a pointer and a
--- size. To process the VGet data, we also need to read addresses 
+-- size. To process the VGet data, we also need to read addresses
 -- from a dedicated region. This is encoded from the end, as follows:
 --
 --     (normal data) addressN offset offset offset offset ... bytes
---                                                           
+--
 -- Here 'bytes' is basically a varNat encoded backwards for the
 -- number of bytes (not counting 'bytes') back to the start of the
 -- first address. This address is then encoded as a varNat, and any
@@ -33,10 +33,10 @@ import Database.VCache.VGetAux
 vgetInit :: VGet ()
 vgetInit =
     readAddrBytes >>= \ nAddrBytes ->
-    if (0 == nAddrBytes) then return () else
-    VGet $ \ s -> 
-        let bUnderflow = nAddrBytes > (vget_limit s `minusPtr` vget_target s) in 
-        if bUnderflow then return eBadAddressRegion else 
+    if 0 == nAddrBytes then return () else
+    VGet $ \ s ->
+        let bUnderflow = nAddrBytes > (vget_limit s `minusPtr` vget_target s) in
+        if bUnderflow then return eBadAddressRegion else
         let pAddrs = vget_limit s `plusPtr` negate nAddrBytes in
         let sAddrs = s { vget_target = pAddrs } in
         _vget readAddrs sAddrs >>= \ mbAddrs ->
@@ -55,15 +55,15 @@ readAddrBytes = readAddrBytes' 0
 {-# INLINE readAddrBytes #-}
 
 readAddrBytes' :: Int -> VGet Int
-readAddrBytes' !nAccum = 
+readAddrBytes' !nAccum =
     getWord8FromEnd >>= \ w8 ->
-    let nAccum' = (nAccum `shiftL` 7) .|. (fromIntegral (0x7f .&. w8)) in
-    if (w8 < 0x80) then return $! nAccum' else
+    let nAccum' = (nAccum `shiftL` 7) .|. fromIntegral (0x7f .&. w8) in
+    if w8 < 0x80 then return $! nAccum' else
     readAddrBytes' nAccum'
 
 -- read a variable list of at least one address
 readAddrs :: VGet [Address]
-readAddrs = 
+readAddrs =
     getVarNat >>= \ nFirst ->
     let addr0 = fromIntegral nFirst in
     addr0 `seq` readAddrs' [addr0] nFirst

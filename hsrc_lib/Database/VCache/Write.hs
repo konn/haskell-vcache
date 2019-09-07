@@ -4,7 +4,7 @@
 --
 -- Some general design goals here:
 --
---   Avoid writing short-lived 
+--   Avoid writing short-lived
 --   Favor sequential processing (not random access)
 --   Single read/write pass per database per frame
 --   Append newly written content when possible
@@ -20,14 +20,14 @@
 -- references. GC is incremental to avoid latency spikes with durable
 -- transactions.
 --
--- KNOWN BUGS: 
+-- KNOWN BUGS:
 --   0.2.7 with the changes, I can get an undefined refct on objects
 --     that I probably GC'd earlier in the same frame. This wasn't an
 --     issue in 0.2.6 because I held VRef and PVar dependencies until
---     after the write frame so GC of these objects would be prevented
---     by mem_vrefs and mem_pvars. In 0.2.7 this is no longer the case.
+--     after the write frame so GC would be prevented by mem_vrefs and
+--     mem_pvars. In 0.2.7 this is no longer the case.
 --
---     I need to prevent GC of dependencies of the current write frame.
+--     I need to prevent GC of dependencies of the current frame.
 --
 --     Since I already plan to be computing a dependency set for nursery
 --     collection, I can probably benefit from using a more 'complete'
@@ -35,11 +35,11 @@
 --     new allocations. I could potentially precompute reference count
 --     increases with the same effort. Then I must add an extra constraint:
 --     can't GC content in mem_vrefs, mem_pvars, or rcNew.
---     
+--
 --     I could then skip reading newDeps in the updater.
---     
--- 
--- 
+--
+--
+--
 module Database.VCache.Write
     ( writeStep
     ) where
@@ -62,7 +62,7 @@ import Foreign.Storable
 import Foreign.Marshal.Alloc
 
 import Database.LMDB.Raw
-import Database.VCache.Types 
+import Database.VCache.Types
 import Database.VCache.VPutFini -- serialize updated PVars
 import Database.VCache.VGetInit -- read dependencies to manage refcts
 import Database.VCache.RWLock -- need a writer lock
@@ -76,14 +76,14 @@ type RefctDiff = Map Address Refct
 
 -- A batch of writes to perform, or will contain a null bytestring to
 -- indicate destruction. (Null bytestrings are not valid outputs due
--- to recording at least the size of the address list.) 
-type WriteBatch = Map Address WriteCell
+-- to recording at least the size of the address list.)
+type WriteBatch = Map Address ByteString
 type GCBatch = WriteBatch
 
 -- For updating secondary indices, track names to addresses.
 -- In this case, we use the nursery reference: older addresses
 -- are deleted, while newer addresses are inserted.
-type UpdSeek = Map ByteString [Address]
+type UpdSeek = Map Int [Address]
 
 addrSize :: Int
 addrSize = sizeOf (undefined :: Address)
@@ -91,37 +91,37 @@ addrSize = sizeOf (undefined :: Address)
 -- Single step for VCache writer.
 writeStep :: VSpace -> IO ()
 writeStep vc = withRWLock (vcache_rwlock vc) $ do
-    takeMVar (vcache_signal vc) 
+    takeMVar (vcache_signal vc)
 
     -- prepare update batch (allocations, writes)
     (Writes wlog wsync) <- atomically (takeWrites (vcache_writes vc))
-    wb <- seralizeWrites vc wlog -- PVar states as bytestrings
+    pvb <- seralizeWrites vc wlog -- PVar states as bytestrings
     Mem.performMinorGC -- nursery GC of Haskell memory
-
-    
 
     afrm <- allocFrameStep vc
     let allocInit = alloc_init afrm
-    let ub = Map.union wb (alloc_list afrm)
+    let ub = Map.union pvb (alloc_list afrm)
 
     -- prepare LMDB-layer read-write transaction.
     txn <- mdb_txn_begin (vcache_db_env vc) Nothing False
 
-    -- select zero-refct addresses for garbage collection 
+    -- select zero-refct addresses for garbage collection
     let gcLimit = 1000 + (2 * Map.size ub) -- adaptive GC rate
     gcb <- runGarbageCollector vc txn gcLimit
 
     -- update the db_memory
     let fb = Map.union gcb ub -- full batch, writes & deletes
-    let bUpdGCSep = Map.size fb == (Map.size ub + Map.size gcb) 
+    let bUpdGCSep = Map.size fb == (Map.size ub + Map.size gcb)
     unless bUpdGCSep (fail "VCache bug: overlapping GC and update targets")
-    (D rcDel hsDel) <- updateVirtualMemory vc txn allocInit fb
+    (UpdateNotes rcDiff hsDel) <- updateVirtualMemory vc txn allocInit fb
 
     -- Update reference counts. zeroes for new allocations. +1 for roots.
-    let rcUpd = Map.unionWith (+) rcDel rcNew
+    let lRoots = fmap fst (alloc_root afrm)
+    let rcAlloc = addRefcts lRoots $ fmap (const 0) (alloc_list afrm)
+    let rcUpd = Map.unionWith (+) rcDiff rcAlloc
     updateReferenceCounts vc txn allocInit rcUpd
 
-    -- Update VRef hashes 
+    -- Update VRef hashes
     let hsAlloc = alloc_seek afrm
     let hsUpd = Map.unionWith (++) hsDel hsAlloc
     updateContentAddressTable vc txn allocInit hsUpd
@@ -131,20 +131,20 @@ writeStep vc = withRWLock (vcache_rwlock vc) $ do
 
     -- Finish writeStep: commit, synch, stats, signals.
     mdb_txn_commit txn -- LMDB commit & synch
-    modifyIORef' (vcache_gc_count vc) (+ (Map.size gcb)) -- update GC count
+    modifyIORef' (vcache_gc_count vc) (+ Map.size gcb) -- update GC count
     forM_ wsync syncSignal -- signal waiting threads
 {-# NOINLINE writeStep #-}
 
 {-
 -- TODO: I would like to perform a 'nursery GC' of the allocator, such
--- that transient nodes in a trie are never written to LMDB. 
+-- that transient nodes in a trie are never written to LMDB.
 --
 -- Roots:
 --  new named root PVars are true roots
 --  PVars older than nursery are effective roots
 --  addresses held by mem_vrefs or mem_pvars are effective roots
 --
--- I can compute a root set, filter  
+-- I can compute a root set, filter
 --
 -- What I'd like to do is filter the allocator frame so it simply does
 -- not contain the content that was not written, including alloc_seek.
@@ -178,8 +178,8 @@ takeWrites tv = do
 seralizeWrites :: VSpace -> WriteLog -> IO WriteBatch
 seralizeWrites = traverse . writeTxW
 
-writeTxW :: VSpace -> TxW -> IO WriteCell
-writeTxW vc (TxW wf v) = fmap snd $ runVPutIO vc (wf v)
+writeTxW :: VSpace -> TxW -> IO ByteString
+writeTxW vc (TxW wf v) = fmap snd (runVPutIO vc (wf v))
 
 syncSignal :: MVar () -> IO ()
 syncSignal = void . flip tryPutMVar ()
@@ -187,13 +187,13 @@ syncSignal = void . flip tryPutMVar ()
 -- Write new PVar roots. This is a rare event, so doesn't need to be
 -- significantly optimized.
 insertRootPVars :: VSpace -> MDB_txn -> [(Address,ByteString)] -> IO ()
-insertRootPVars vc txn rootList = 
-    if (L.null rootList) then return () else
+insertRootPVars vc txn rootList =
+    if L.null rootList then return () else
     alloca $ \ pAddr -> do
     let vAddr = MDB_val { mv_data = castPtr pAddr, mv_size = fromIntegral addrSize }
-    croot <- mdb_cursor_open' txn (vcache_db_vroots vc) 
+    croot <- mdb_cursor_open' txn (vcache_db_vroots vc)
     let flags = compileWriteFlags [MDB_NOOVERWRITE]
-    let insertRoot (addr, path) = 
+    let insertRoot (addr, path) =
             withByteStringVal path $ \ vKey -> do
             poke pAddr addr
             bOK <- mdb_cursor_put' flags croot vKey vAddr
@@ -207,8 +207,8 @@ insertRootPVars vc txn rootList =
 -- table. The benefits of sequential insert are probably marginal.
 updateContentAddressTable :: VSpace -> MDB_txn -> Address -> UpdSeek -> IO ()
 updateContentAddressTable vc txn allocInit updSeek =
-    if (Map.null updSeek) then return () else
-    alloca $ \ pAddr -> 
+    if Map.null updSeek then return () else
+    alloca $ \ pAddr ->
     alloca $ \ pvKey ->
     alloca $ \ pvAddr -> do
     let vAddr = MDB_val { mv_data = castPtr pAddr, mv_size = fromIntegral addrSize }
@@ -227,22 +227,22 @@ updateContentAddressTable vc txn allocInit updSeek =
             let flags = compileWriteFlags []
             mdb_cursor_del' flags chash
     let processHash (_hash, addrs) =
-            withByteStringVal _hash $ \ vKey ->
+            withStoreableVal _hash $ \ vKey ->
             forM_ addrs $ \ addr ->
             poke pAddr addr >> -- prepares vAddr
-            if addr < allocInit then deleteHash vKey addr 
+            if addr < allocInit then deleteHash vKey addr
                                 else insertHash vKey addr
 
-    mapM_ processHash (Map.toAscList updSeek) 
+    mapM_ processHash (Map.toAscList updSeek)
     mdb_cursor_close' chash
 {-# NOINLINE updateContentAddressTable #-}
 
 -- | Update reference counts in the database. This requires, for each
 -- older address, reading the old reference count, updating it, then
--- writing the new value. Newer addresses may simply be appended. 
+-- writing the new value. Newer addresses may simply be appended.
 --
 -- VCache uses two tables for reference counts. One table just contains
--- zeroes. The other table includes positive counts. This separation 
+-- zeroes. The other table includes positive counts. This separation
 -- makes it easy for the garbage collector to discover its targets.
 --
 -- I assume that all entries older than allocInit should be recorded
@@ -252,7 +252,7 @@ updateContentAddressTable vc txn allocInit updSeek =
 -- Ephemerons in the Haskell layer are not reference counted.
 --
 -- This operation should never fail. Failure indicates there is a bug
--- in VCache or some external source of database corruption. 
+-- in VCache or some external source of database corruption.
 --
 updateReferenceCounts :: VSpace -> MDB_txn -> Address -> RefctDiff -> IO ()
 updateReferenceCounts vc txn allocInit rcDiffMap =
@@ -273,7 +273,7 @@ updateReferenceCounts vc txn allocInit rcDiffMap =
             bOK <- mdb_cursor_put' flags wc0 vAddr vZero
             unless bOK (addrBug addr "refct0 could not be appended")
     let newAllocation addr rc =
-            if (0 == rc) then newEphemeron addr else do 
+            if 0 == rc then newEphemeron addr else do
             unless (rc > 0) (addrBug addr "allocation with negative refct")
             vRefct <- writeRefctBytes pRefctBuff rc
             let flags = compileWriteFlags [MDB_APPEND]
@@ -289,17 +289,17 @@ updateReferenceCounts vc txn allocInit rcDiffMap =
             let wf = compileWriteFlags [MDB_NOOVERWRITE]
             bOK <- mdb_cursor_put' wf wrc vAddr vRefct
             unless bOK (addrBug addr "could not update refct from zero")
-    let updateRefct (addr,rcDiff) = 
+    let updateRefct (addr,rcDiff) =
             poke pAddr addr >> -- prepares vAddr, pvAddr
-            if (addr >= allocInit) then newAllocation addr rcDiff else
-            if (0 == rcDiff) then return () else -- zero delta, may skip
+            if addr >= allocInit then newAllocation addr rcDiff else
+            if 0 == rcDiff then return () else -- zero delta, may skip
             mdb_cursor_get' MDB_SET wrc pvAddr pvData >>= \ bHasRefct ->
-            if (not bHasRefct) then updateFromZero addr rcDiff else
+            if not bHasRefct then updateFromZero addr rcDiff else
             peek pvData >>= readRefctBytes >>= \ rcOld ->
-            assert (rcOld > 0) $ 
+            assert (rcOld > 0) $
             let rc = rcOld + rcDiff in
-            if (rc < 0) then addrBug addr "positive to negative refct" else
-            if (0 == rc) 
+            if rc < 0 then addrBug addr "positive to negative refct" else
+            if 0 == rc
                 then do let df = compileWriteFlags []
                         mdb_cursor_del' df wrc
                         let wf0 = compileWriteFlags [MDB_NOOVERWRITE]
@@ -324,46 +324,49 @@ addrBug addr msg = fail $ "VCache bug: address " ++ show addr ++ " " ++ msg
 -- Since we only make one pass through memory, we need to maintain notes
 -- about the changes in content:
 --
---  * negative reference counts from content
+--  * changes in reference counts from content
 --  * hash values for deleted VRefs
--- 
-data Deletions = D !RefctDiff !UpdSeek
+--
+data UpdateNotes = UpdateNotes !RefctDiff !UpdSeek
 
-emptyD :: Deletions
-emptyD = D Map.empty Map.empty
+emptyNotes :: UpdateNotes
+emptyNotes = UpdateNotes Map.empty Map.empty
 
 -- create, update, or delete objects in the primary memory table
-updateVirtualMemory :: VSpace -> MDB_txn -> Address -> WriteBatch -> IO Deletions
-updateVirtualMemory vc txn allocStart fb = 
-    if Map.null fb then return emptyD else  
+updateVirtualMemory :: VSpace -> MDB_txn -> Address -> WriteBatch -> IO UpdateNotes
+updateVirtualMemory vc txn allocStart fb =
+    if Map.null fb then return emptyNotes else
     alloca $ \ pAddr ->
     alloca $ \ pvAddr ->
     alloca $ \ pvOldData -> do
     let vAddr = MDB_val { mv_data = castPtr pAddr, mv_size = fromIntegral addrSize }
     poke pvAddr vAddr -- used with MDB_SET so should not be modified
-    cmem <- mdb_cursor_open' txn (vcache_db_memory vc) 
+    cmem <- mdb_cursor_open' txn (vcache_db_memory vc)
 
     -- logic inlined here for easy access to cursors and buffers
-    let create udn addr bytes =
+    let create (UpdateNotes rcs hs) addr bytes =
             withByteStringVal bytes $ \ vData -> do
+            newDeps <- readDataDeps vc addr vData
+            let rcs' = addRefcts newDeps rcs
             let cf = compileWriteFlags [MDB_APPEND]
             bOK <- mdb_cursor_put' cf cmem vAddr vData
             unless bOK (addrBug addr "created out of order")
-            return udn
+            return (UpdateNotes rcs' hs)
 
-    let update (D rcs hs) addr bytes = 
+    let update (UpdateNotes rcs hs) addr bytes =
             withByteStringVal bytes $ \ vData -> do
             unless (isPVarAddr addr) (addrBug addr "VRef cannot be updated")
             bExists <- mdb_cursor_get' MDB_SET cmem pvAddr pvOldData
             unless bExists (addrBug addr "undefined on update")
             oldDeps <- readDataDeps vc addr =<< peek pvOldData
-            let rcs' = subRefcts oldDeps rcs
+            newDeps <- readDataDeps vc addr vData
+            let rcs' = (addRefcts newDeps . subRefcts oldDeps) rcs
             let uf = compileWriteFlags [MDB_CURRENT]
             bOK <- mdb_cursor_put' uf cmem vAddr vData
             unless bOK (addrBug addr "PVar update failure")
-            return (D rcs' hs)
+            return (UpdateNotes rcs' hs)
 
-    let delete (D rcs hs) addr = do
+    let delete (UpdateNotes rcs hs) addr = do
             bExists <- mdb_cursor_get' MDB_SET cmem pvAddr pvOldData
             unless bExists (addrBug addr "undefined on delete")
             vOldData <- peek pvOldData
@@ -374,24 +377,24 @@ updateVirtualMemory vc txn allocStart fb =
             let rcs' = subRefcts oldDeps rcs
             let df = compileWriteFlags []
             mdb_cursor_del' df cmem
-            return (D rcs' hs')
+            return (UpdateNotes rcs' hs')
 
-    let processCell udn (addr, (bytes, _)) =
-            poke pAddr addr >> -- 
-            if (BS.null bytes) then delete udn addr else
-            if (addr >= allocStart) then create udn addr bytes 
+    let processCell udn (addr, bytes) =
+            poke pAddr addr >> --
+            if BS.null bytes then delete udn addr else
+            if addr >= allocStart then create udn addr bytes
                                     else update udn addr bytes
 
-    notes <- foldM processCell emptyD (Map.toAscList fb)
+    notes <- foldM processCell emptyNotes (Map.toAscList fb)
     mdb_cursor_close' cmem
     return notes
 {-# NOINLINE updateVirtualMemory #-}
 
--- here we might have one bytestring to many addresses... but this is 
+-- here we might have one bytestring to many addresses... but this is
 -- extremely unlikely.
-addHash :: ByteString -> Address -> UpdSeek -> UpdSeek
+addHash :: Int -> Address -> UpdSeek -> UpdSeek
 addHash h addr = Map.alter f h where
-    f = Just . (:) addr . fromMaybe [] 
+    f = Just . (:) addr . fromMaybe []
 
 -- subtract 1 from each address refct
 subRefcts :: [Address] -> RefctDiff -> RefctDiff
@@ -417,8 +420,8 @@ readDataDeps vc addr vData = _vget vgetInit state0 >>= toDeps where
 
 
 -- | Garbage collection in VCache involves selecting addresses with
--- zero references, filtering objects that are held by VRefs and 
--- PVars in Haskell memory, then deleting the remainders. 
+-- zero references, filtering objects that are held by VRefs and
+-- PVars in Haskell memory, then deleting the remainders.
 --
 -- GC is incremental. We limit the amount of work performed in each
 -- write step to avoid creating too much latency for writers. The
@@ -442,16 +445,15 @@ gcCandidates vc txn gcLimit =
     c0 <- mdb_cursor_open' txn (vcache_db_refct0 vc)
 
     let loop !n !b !gcb = -- select candidates
-            if (not b) then restartGC vc >> return gcb else
+            if not b then restartGC vc >> return gcb else
             (peek pvAddr >>= peekAddr) >>= \ addr ->
             let gcb' = Map.insert addr gcCell gcb in
-            if (0 == n) then continueGC vc addr >> return gcb' else
+            if 0 == n then continueGC vc addr >> return gcb' else
             mdb_cursor_get' MDB_NEXT c0 pvAddr nullPtr >>= \ b' ->
             loop (n-1) b' gcb'
 
     let initC0 = -- continue GC or start from beginning of map
-            readIORef (vcache_gc_start vc) >>= \ mbContinue ->
-            case mbContinue of
+            readIORef (vcache_gc_start vc) >>= \case
                 Nothing -> mdb_cursor_get' MDB_FIRST c0 pvAddr nullPtr
                 Just addr -> alloca $ \ pAddr -> do
                     let vAddr = MDB_val { mv_data = castPtr pAddr
@@ -467,25 +469,25 @@ gcCandidates vc txn gcLimit =
 
 -- filter candidates for ephemeral addresses then record the GC frame.
 gcSelectFrame :: VSpace -> GCBatch -> IO GCBatch
-gcSelectFrame vc gcb = 
+gcSelectFrame vc gcb =
     modifyMVarMasked (vcache_memory vc) $ \ m -> do
-    let gcb' = ((gcb `Map.difference` mem_vrefs m) 
-                     `Map.difference` mem_pvars m) 
+    let gcb' = (gcb `Map.difference` mem_vrefs m)
+                     `Map.difference` mem_pvars m
     let gc' = GC { gc_frm_curr = GCFrame gcb'
                  , gc_frm_prev = gc_frm_curr (mem_gc m) }
     let m' = m { mem_gc = gc' }
     return (m', gcb')
 
--- delete GC'd addresses from the db_refct0 table. Returns 
--- number of addresses in 
+-- delete GC'd addresses from the db_refct0 table. Returns
+-- number of addresses in
 gcClearFrame :: VSpace -> MDB_txn -> GCBatch -> IO ()
-gcClearFrame vc txn gcb = 
-    alloca $ \ pAddr -> 
+gcClearFrame vc txn gcb =
+    alloca $ \ pAddr ->
     alloca $ \ pvAddr -> do
     let vAddr = MDB_val { mv_data = castPtr pAddr, mv_size = fromIntegral addrSize }
     poke pvAddr vAddr
     c0 <- mdb_cursor_open' txn (vcache_db_refct0 vc)
-    
+
     let clearAddr addr = do
             poke pAddr addr
             bFound <- mdb_cursor_get' MDB_SET c0 pvAddr nullPtr
@@ -496,8 +498,8 @@ gcClearFrame vc txn gcb =
     mapM_ clearAddr (Map.keys gcb)
     mdb_cursor_close' c0
     return ()
-   
- 
+
+
 -- GC from first address (affects next frame)
 restartGC :: VSpace -> IO ()
 restartGC vc = writeIORef (vcache_gc_start vc) Nothing
@@ -506,8 +508,8 @@ restartGC vc = writeIORef (vcache_gc_start vc) Nothing
 continueGC :: VSpace -> Address -> IO ()
 continueGC vc !addr = writeIORef (vcache_gc_start vc) (Just addr)
 
-gcCell :: WriteCell
-gcCell = (BS.empty, [])
+gcCell :: ByteString
+gcCell = BS.empty
 
 peekAddr :: MDB_val -> IO Address
 peekAddr v =
