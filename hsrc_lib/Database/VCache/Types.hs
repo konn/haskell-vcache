@@ -42,7 +42,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString.Internal as BSI
 import Control.Monad
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.STM (STM)
+import Control.Monad.STM (STM, throwSTM)
 import Control.Applicative
 import Control.Concurrent.MVar
 import Control.Concurrent.STM.TVar
@@ -453,6 +453,9 @@ withByteStringVal (BSI.PS fp off len) action = withForeignPtr fp $ \ p ->
 newtype VTx a = VTx { _vtx :: StateT VTxState STM a }
     deriving (Monad, Functor, Applicative, Alternative, MonadPlus)
 
+instance MonadFail VTx where
+    fail = VTx . lift . throwSTM . userError
+
 -- | In addition to the STM transaction, I need to track whether
 -- the transaction is durable (such that developers may choose
 -- based on internal domain-model concerns) and which variables
@@ -554,7 +557,6 @@ instance Applicative VPut where
     {-# INLINE pure #-}
     {-# INLINE (<*>) #-}
 instance Monad VPut where
-    fail msg = VPut (\ _ -> fail ("VCache.VPut.fail " ++ msg))
     return r = VPut (return . VPutR r)
     m >>= k = VPut $ _vput m >=> \ (VPutR r s') ->
         _vput (k r) s'
@@ -563,6 +565,8 @@ instance Monad VPut where
     {-# INLINE return #-}
     {-# INLINE (>>=) #-}
     {-# INLINE (>>) #-}
+instance MonadFail VPut where
+    fail msg = VPut (\ _ -> fail ("VCache.VPut.fail " ++ msg))
 
 
 -- | VGet is a parser combinator monad for VCache. Unlike pure binary
@@ -593,7 +597,6 @@ instance Applicative VGet where
     {-# INLINE pure #-}
     {-# INLINE (<*>) #-}
 instance Monad VGet where
-    fail msg = VGet (\ _ -> return (VGetE msg))
     return r = VGet (return . VGetR r)
     m >>= k = VGet $ _vget m >=> \case
             VGetE msg -> return (VGetE msg)
@@ -601,10 +604,12 @@ instance Monad VGet where
     m >> k = VGet $ _vget m >=> \case
             VGetE msg -> return (VGetE msg)
             VGetR _ s' -> _vget k s'
-    {-# INLINE fail #-}
     {-# INLINE return #-}
     {-# INLINE (>>=) #-}
     {-# INLINE (>>) #-}
+instance MonadFail VGet where
+    fail msg = VGet (\ _ -> return (VGetE msg))
+    {-# INLINE fail #-}
 instance Alternative VGet where
     empty = mzero
     (<|>) = mplus
