@@ -1,3 +1,4 @@
+cabal-version: 3.0
 Name: vcache
 Version: 0.3.0
 Synopsis: semi-transparent persistence for Haskell using LMDB, STM
@@ -19,11 +20,10 @@ Homepage: http://github.com/dmbarbour/haskell-vcache
 
 Package-Url:
 Copyright: (c) 2014-2015 by David Barbour
-License: BSD3
+License: BSD-3-Clause
 license-file: LICENSE
 Stability: experimental
 build-type: Simple
-cabal-version: >= 2
 
 Extra-source-files:
     README.md
@@ -81,4 +81,4 @@ Library
 
   ghc-options: -Wall -fprof-auto
 
-  extensions: LambdaCase
+  default-extensions: LambdaCase
